@@ -6,6 +6,7 @@ import attr
 import demes
 import fwdpy11
 import fwdpy11.class_decorators
+import fwdpy11.demographic_models
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -99,36 +100,85 @@ def _get_ancestral_population_size(dg: demes.DemeGraph) -> int:
     return Nref
 
 
-def _process_epoch(e: demes.Epoch, events: _Fwdpy11Events) -> None:
+def _set_initial_migration_matrix(
+    dg: demes.DemeGraph, idmap: typing.Dict, events: _Fwdpy11Events
+) -> None:
+    """
+    If there are no migrations nor pulses in dg,
+    then the model can use None for migmatrix.
+    Otherwise, we need to set it.
+
+    However, there's a complication here. Admixture
+    events are given as backwards-in-time ancestry
+    proportions.  We have two ways to implement them:
+
+    1. As a fwdpy11.MassMigration event, which
+       copies a fraction of the ancestral deme
+       to the new deme.  Thus, to get the new
+       deme's ancestry proportion right, we
+       need to know exact sizes.
+
+    2. As a single-generation change in the migration rate.
+       In the simplest case, this works nicely.  However,
+       there is a corner case when the migration rates
+       are set for the model in the generation immediately
+       after the mass migration. fwdpy11 doesn't allow
+       you to set the migration rates into a deme > 1
+       time in a given generation.
+    """
     pass
 
 
-def _process_migration(m: demes.Migration, events: _Fwdpy11Events) -> None:
+# FIXME: we aren't processing all of the verbs that we need, but
+# we need more YAML examples first.
+
+
+def _process_epoch(e: demes.Epoch, idmap: typing.Dict, events: _Fwdpy11Events) -> None:
     pass
 
 
-def _process_pulse(p: demes.Pulse, events: _Fwdpy11Events) -> None:
+def _process_migration(
+    m: demes.Migration, idmap: typing.Dict, events: _Fwdpy11Events
+) -> None:
+    pass
+
+
+def _process_pulse(p: demes.Pulse, idmap: typing.Dict, events: _Fwdpy11Events) -> None:
     pass
 
 
 def _build_from_deme_graph(
     input_model: demes.DemeGraph, burnin: int
-) -> fwdpy11.DiscreteDemography:
+) -> fwdpy11.demographic_models.DemographicModelDetails:
     """
-    The workhorse
+    The workhorse.
     """
-    id2int = _build_deme_id_to_int_map(input_model)
+    idmap = _build_deme_id_to_int_map(input_model)
     Nref = _get_ancestral_population_size(input_model)
     events = _Fwdpy11Events()
 
-    return events.build_model()
+    doi = None
+    if input_model.doi != "None":
+        doi = input_model.doi
+    return fwdpy11.demographic_models.DemographicModelDetails(
+        model=events.build_model(),
+        name=input_model.description,
+        source={"function": "_build_from_deme_graph"},
+        parameters=None,
+        citation=fwdpy11.demographic_models.DemographicModelCitation(
+            DOI=doi, full_citation=None, metadata=None
+        ),
+        metadata={j: i for i, j in idmap.items()},
+    )
 
 
-def build_from_yaml(filename: typing.Text, burnin: int) -> fwdpy11.DiscreteDemography:
+def build_from_yaml(
+    filename: typing.Text, burnin: int
+) -> fwdpy11.demographic_models.DemographicModelDetails:
     """
     Candidate for user-facing function.
     Could also be a part of the DiscreteDemography
-    public interface, although static functions are but odd in Python?
+    public interface, although static functions are odd in Python?
     """
     input_model = demes.load(filename)
     return _build_from_deme_graph(input_model, burnin)
