@@ -2,6 +2,7 @@ import argparse
 import math
 import sys
 import typing
+import warnings
 
 import attr
 import demes
@@ -105,10 +106,14 @@ def _get_initial_deme_sizes(dg: demes.DemeGraph, idmap: typing.Dict) -> typing.D
     at the start of the simulation for all demes whose
     start_time equals inf.
     """
+    otime = _get_most_ancient_deme_time(dg)
     rv = dict()
     for deme in dg.demes:
-        if deme.epochs[0].start_time == math.inf:
+        if deme.epochs[0].start_time == otime:
             rv[idmap[deme.id]] = deme.epochs[0].initial_size
+
+    if len(rv) == 0:
+        raise RuntimeError("could not determine initial deme sizes")
 
     return rv
 
@@ -254,6 +259,7 @@ def build_from_yaml(
     public interface, although static functions are odd in Python?
     """
     dg = demes.load(filename)
+    print(dg)
     return _build_from_deme_graph(dg, burnin)
 
 
