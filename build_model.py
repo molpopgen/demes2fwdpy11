@@ -216,7 +216,7 @@ def _process_pulse(p: demes.Pulse, idmap: typing.Dict, events: _Fwdpy11Events) -
 
 
 def _build_from_deme_graph(
-    dg: demes.DemeGraph, burnin: int
+    dg: demes.DemeGraph, burnin: int, source: typing.Optional[typing.Dict] = None
 ) -> fwdpy11.demographic_models.DemographicModelDetails:
     """
     The workhorse.
@@ -225,6 +225,9 @@ def _build_from_deme_graph(
     idmap = _build_deme_id_to_int_map(dg)
     initial_sizes = _get_initial_deme_sizes(dg, idmap)
     Nref = _get_ancestral_population_size(dg)
+    most_ancient_deme_start = _get_most_ancient_deme_start_time(dg)
+    most_recent_deme_end = _get_most_recent_deme_end_time(dg)
+
     events = _Fwdpy11Events()
 
     _process_all_epochs(dg, idmap, events)
@@ -237,7 +240,7 @@ def _build_from_deme_graph(
     return fwdpy11.demographic_models.DemographicModelDetails(
         model=events.build_model(),
         name=dg.description,
-        source={"function": "_build_from_deme_graph"},
+        source=source,
         parameters=None,
         citation=fwdpy11.demographic_models.DemographicModelCitation(
             DOI=doi, full_citation=None, metadata=None
@@ -258,8 +261,7 @@ def build_from_yaml(
     public interface, although static functions are odd in Python?
     """
     dg = demes.load(filename)
-    print(dg)
-    return _build_from_deme_graph(dg, burnin)
+    return _build_from_deme_graph(dg, burnin, {"demes_yaml_file": args.yaml})
 
 
 if __name__ == "__main__":
