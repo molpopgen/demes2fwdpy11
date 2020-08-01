@@ -232,9 +232,11 @@ def _build_from_deme_graph(
 
     _process_all_epochs(dg, idmap, events)
 
-    doi = None
     if dg.doi != "None":
         doi = dg.doi
+    else:
+        doi = None
+
     return fwdpy11.demographic_models.DemographicModelDetails(
         model=events.build_model(),
         name=dg.description,
