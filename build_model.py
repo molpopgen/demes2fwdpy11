@@ -106,7 +106,7 @@ def _get_initial_deme_sizes(dg: demes.DemeGraph, idmap: typing.Dict) -> typing.D
     at the start of the simulation for all demes whose
     start_time equals inf.
     """
-    otime = _get_most_ancient_deme_time(dg)
+    otime = _get_most_ancient_deme_start_time(dg)
     rv = dict()
     for deme in dg.demes:
         if deme.epochs[0].start_time == otime:
@@ -118,16 +118,12 @@ def _get_initial_deme_sizes(dg: demes.DemeGraph, idmap: typing.Dict) -> typing.D
     return rv
 
 
-def _get_most_ancient_deme_time(dg: demes.DemeGraph) -> typing.Optional[int]:
-    oldest_deme_time = None
-    for deme in dg.demes:
-        if oldest_deme_time is None:
-            oldest_deme_time = deme.epochs[0].start_time
-        else:
-            oldest_deme_time = max(oldest_deme_time, deme.epochs[0].start_time)
-    if oldest_deme_time is None:
-        raise ValueError(f"invalid most ancient deme start_time: {oldest_deme_time}")
-    return oldest_deme_time
+def _get_most_ancient_deme_start_time(dg: demes.DemeGraph) -> demes.demes.Time:
+    return max([e.start_time for d in dg.demes for e in d.epochs])
+
+
+def _get_most_recent_deme_end_time(dg: demes.DemeGraph) -> demes.demes.Time:
+    return min([e.end_time for d in dg.demes for e in d.epochs])
 
 
 def _get_ancestral_population_size(dg: demes.DemeGraph) -> int:
@@ -138,18 +134,16 @@ def _get_ancestral_population_size(dg: demes.DemeGraph) -> int:
     then the ancestral size is considered to be the size
     of all those demes (size of ancestral metapopulation).
     """
-    oldest_deme_time = _get_most_ancient_deme_time(dg)
+    oldest_deme_time = _get_most_ancient_deme_start_time(dg)
 
-    Nref = 0
-    for deme in dg.demes:
-        if deme.start_time == oldest_deme_time:
-            if Nref is None:
-                Nref = deme.epochs[0].initial_size
-            else:
-                Nref += deme.epochs[0].initial_size
-    if Nref <= 0:
-        raise ValueError(f"invalid ancestral population size: {Nref}")
-    return Nref
+    return sum(
+        [
+            e.initial_size
+            for d in dg.demes
+            for e in d.epochs
+            if e.start_time == oldest_deme_time
+        ]
+    )
 
 
 def _set_initial_migration_matrix(
