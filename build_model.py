@@ -136,7 +136,7 @@ def _get_ancestral_population_size(dg: demes.DemeGraph) -> int:
     """
     oldest_deme_time = _get_most_ancient_deme_start_time(dg)
 
-    return sum(
+    rv = sum(
         [
             e.initial_size
             for d in dg.demes
@@ -144,6 +144,9 @@ def _get_ancestral_population_size(dg: demes.DemeGraph) -> int:
             if e.start_time == oldest_deme_time
         ]
     )
+    if rv == 0:
+        raise RuntimeError("could not determinine ancestral metapopulation size")
+    return rv
 
 
 def _set_initial_migration_matrix(
