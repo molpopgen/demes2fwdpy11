@@ -49,6 +49,8 @@ class _TimeConverter(object):
     def _build_time_unit_converter(self) -> typing.Callable[[demes.demes.Time], int]:
         if self.time_units == "years":
             return lambda x: x / self.generation_time
+        elif self.time_units == "generations":
+            return lambda x: x
 
     def __call__(self, input_time: demes.demes.Time) -> int:
         return np.rint(self.converter(input_time)).astype(int)
