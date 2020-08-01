@@ -155,21 +155,21 @@ def _process_pulse(p: demes.Pulse, idmap: typing.Dict, events: _Fwdpy11Events) -
 
 
 def _build_from_deme_graph(
-    input_model: demes.DemeGraph, burnin: int
+    dg: demes.DemeGraph, burnin: int
 ) -> fwdpy11.demographic_models.DemographicModelDetails:
     """
     The workhorse.
     """
-    idmap = _build_deme_id_to_int_map(input_model)
-    Nref = _get_ancestral_population_size(input_model)
+    idmap = _build_deme_id_to_int_map(dg)
+    Nref = _get_ancestral_population_size(dg)
     events = _Fwdpy11Events()
 
     doi = None
-    if input_model.doi != "None":
-        doi = input_model.doi
+    if dg.doi != "None":
+        doi = dg.doi
     return fwdpy11.demographic_models.DemographicModelDetails(
         model=events.build_model(),
-        name=input_model.description,
+        name=dg.description,
         source={"function": "_build_from_deme_graph"},
         parameters=None,
         citation=fwdpy11.demographic_models.DemographicModelCitation(
@@ -187,8 +187,8 @@ def build_from_yaml(
     Could also be a part of the DiscreteDemography
     public interface, although static functions are odd in Python?
     """
-    input_model = demes.load(filename)
-    return _build_from_deme_graph(input_model, burnin)
+    dg = demes.load(filename)
+    return _build_from_deme_graph(dg, burnin)
 
 
 if __name__ == "__main__":
