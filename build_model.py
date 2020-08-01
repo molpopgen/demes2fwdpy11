@@ -1,4 +1,5 @@
 import argparse
+import math
 import sys
 import typing
 
@@ -7,6 +8,7 @@ import demes
 import fwdpy11
 import fwdpy11.class_decorators
 import fwdpy11.demographic_models
+import numpy as np
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -21,6 +23,35 @@ def make_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def _valid_time_unit(self, attribute, value) -> None:
+    if value not in ["years", "generations"]:
+        raise ValueError(f"{attribute.name} must be years or generations")
+
+
+@attr.s(auto_attribs=True)
+class _TimeConverter(object):
+    """
+    A callable class that'll convert input
+    times (int whatever units) to output
+    times in generations.
+    """
+
+    time_units: str = attr.ib(validator=_valid_time_unit)
+    generation_time: demes.demes.Time = attr.ib(
+        validator=[demes.demes.positive, demes.demes.finite]
+    )
+
+    def __attrs_post_init__(self):
+        self.converter = self._build_time_unit_converter()
+
+    def _build_time_unit_converter(self) -> typing.Callable[[demes.demes.Time], int]:
+        if self.time_units == "years":
+            return lambda x: x / self.generation_time
+
+    def __call__(self, input_time: demes.demes.Time) -> int:
+        return np.rint(self.converter(input_time)).astype(int)
 
 
 @fwdpy11.class_decorators.attr_class_to_from_dict
@@ -64,6 +95,20 @@ def _build_deme_id_to_int_map(dg: demes.DemeGraph) -> typing.Dict:
     temp = sorted(temp, key=lambda x: (-x[0], x[1]))
 
     return {j[1]: i for i, j in enumerate(temp)}
+
+
+def _get_initial_deme_sizes(dg: demes.DemeGraph, idmap: typing.Dict) -> typing.Dict:
+    """
+    Build a map of a deme's integer label to its size
+    at the start of the simulation for all demes whose
+    start_time equals inf.
+    """
+    rv = dict()
+    for deme in dg.demes:
+        if deme.epochs[0].start_time == math.inf:
+            rv[idmap[deme.id]] = deme.epochs[0].initial_size
+
+    return rv
 
 
 def _get_most_ancient_deme_time(dg: demes.DemeGraph) -> typing.Optional[int]:
@@ -141,7 +186,19 @@ def _set_initial_migration_matrix(
 
 
 def _process_epoch(e: demes.Epoch, idmap: typing.Dict, events: _Fwdpy11Events) -> None:
+    """
+    Can change sizes, cloning rates, and selfing rates.
+
+    Since fwdpy11 currently doesn't understand cloning, we need
+    to raise an error if the rate is not None or nonzero.
+    """
     pass
+
+
+def _process_all_epochs(dg, idmap, events):
+    for deme in dg.demes:
+        for e in deme.epochs:
+            _process_epoch(e, idmap, events)
 
 
 def _process_migration(
@@ -160,9 +217,13 @@ def _build_from_deme_graph(
     """
     The workhorse.
     """
+    time_converter = _TimeConverter(dg.time_units, dg.generation_time)
     idmap = _build_deme_id_to_int_map(dg)
+    initial_sizes = _get_initial_deme_sizes(dg, idmap)
     Nref = _get_ancestral_population_size(dg)
     events = _Fwdpy11Events()
+
+    _process_all_epochs(dg, idmap, events)
 
     doi = None
     if dg.doi != "None":
@@ -175,7 +236,10 @@ def _build_from_deme_graph(
         citation=fwdpy11.demographic_models.DemographicModelCitation(
             DOI=doi, full_citation=None, metadata=None
         ),
-        metadata={j: i for i, j in idmap.items()},
+        metadata={
+            "deme_labels": {j: i for i, j in idmap.items()},
+            "initial_sizes": initial_sizes,
+        },
     )
 
 
