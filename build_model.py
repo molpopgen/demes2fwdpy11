@@ -131,6 +131,13 @@ def _set_initial_migration_matrix(
 
 # FIXME: we aren't processing all of the verbs that we need, but
 # we need more YAML examples first.
+# migrations (setting migration rates)
+# The following are all flavors of mass migration:
+# pulses
+# splits
+# branches
+# admixtures
+# mergers
 
 
 def _process_epoch(e: demes.Epoch, idmap: typing.Dict, events: _Fwdpy11Events) -> None:
