@@ -225,7 +225,11 @@ def _build_from_deme_graph(
     idmap = _build_deme_id_to_int_map(dg)
     initial_sizes = _get_initial_deme_sizes(dg, idmap)
     Nref = _get_ancestral_population_size(dg)
+
+    # This could be either math.inf or a finite value.
     most_ancient_deme_start = _get_most_ancient_deme_start_time(dg)
+    # This could be >= 0, but not math.inf.  (That last claim
+    # is untested, but kinda has to be true.)
     most_recent_deme_end = _get_most_recent_deme_end_time(dg)
 
     events = _Fwdpy11Events()
