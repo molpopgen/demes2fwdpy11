@@ -168,7 +168,7 @@ def _get_model_times(dg: demes.DemeGraph) -> _ModelTimes:
         model_start_time = max([i for i in starts if i >= max(ends_inf)])
 
     if most_recent_deme_end != 0:
-        simlen = most_recent_deme_end - model_start_time
+        simlen = model_start_time - most_recent_deme_end
     else:
         simlen = model_start_time
 
