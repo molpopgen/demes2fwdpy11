@@ -11,6 +11,9 @@ import fwdpy11.class_decorators
 import fwdpy11.demographic_models
 import numpy as np
 
+# TODO: we should have an early check on things.
+# For example, check that all size change functions are valid, etc..
+
 
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
@@ -57,7 +60,19 @@ class _TimeConverter(object):
         return np.rint(self.converter(input_time)).astype(int)
 
 
-@fwdpy11.class_decorators.attr_class_to_from_dict
+@attr.s(frozen=True, auto_attribs=True)
+class _ModelTimes(object):
+    """
+    These are in units of the deme graph
+    and increase backwards into the past.
+    """
+
+    model_start_time: demes.demes.Time
+    model_end_time: demes.demes.Time
+    model_duration: int = attr.ib(validator=attr.validators.instance_of(int))
+
+
+@fwdpy11.class_decorators.attr_class_to_from_dict_no_recurse
 @attr.s(auto_attribs=True)
 class _Fwdpy11Events(object):
     """
@@ -126,6 +141,44 @@ def _get_most_recent_deme_end_time(dg: demes.DemeGraph) -> demes.demes.Time:
     return min([e.end_time for d in dg.demes for e in d.epochs])
 
 
+def _get_model_times(dg: demes.DemeGraph) -> _ModelTimes:
+    """
+    In units of dg.time_units, obtain the following:
+
+    1. The time when the demographic model starts.
+    2. The time when it ends.
+    3. The total simulation length.
+    """
+    oldest_deme_time = _get_most_ancient_deme_start_time(dg)
+    most_recent_deme_end = _get_most_recent_deme_end_time(dg)
+
+    model_start_time = oldest_deme_time
+    if oldest_deme_time == math.inf:
+        # Find the end times for all demes
+        # with start_time == math.inf.
+        # Determine if there's any other deme
+        # whose start time is < any of those
+        # end times.
+        ends_inf = [
+            e.end_time for d in dg.demes for e in d.epochs if e.start_time == math.inf
+        ]
+        starts = [
+            e.start_time for d in dg.demes for e in d.epochs if e.start_time != math.inf
+        ]
+        model_start_time = max([i for i in starts if i >= max(ends_inf)])
+
+    if most_recent_deme_end != 0:
+        simlen = most_recent_deme_end - model_start_time
+    else:
+        simlen = model_start_time
+
+    return _ModelTimes(
+        model_start_time=model_start_time,
+        model_end_time=most_recent_deme_end,
+        model_duration=int(np.rint(simlen)),
+    )
+
+
 def _get_ancestral_population_size(dg: demes.DemeGraph) -> int:
     """
     Need this for the burnin time.
@@ -189,20 +242,69 @@ def _set_initial_migration_matrix(
 # mergers
 
 
-def _process_epoch(e: demes.Epoch, idmap: typing.Dict, events: _Fwdpy11Events) -> None:
+def _process_epoch(
+    deme_id: str,
+    e: demes.Epoch,
+    idmap: typing.Dict,
+    model_times: _ModelTimes,
+    burnin_generation: int,
+    time_converter: _TimeConverter,
+    events: _Fwdpy11Events,
+) -> None:
     """
     Can change sizes, cloning rates, and selfing rates.
 
     Since fwdpy11 currently doesn't understand cloning, we need
     to raise an error if the rate is not None or nonzero.
     """
+    when = burnin_generation + time_converter(
+        model_times.model_start_time - e.start_time
+    )
+    if e.selfing_rate is not None:
+        if e.start_time == math.inf:
+            events.set_selfing_rates.append(
+                fwdpy11.SetSelfingRate(when=when, deme=idmap[deme_id], S=e.selfing_rate)
+            )
+
+    if e.cloning_rate is not None:
+        if e.cloning_rate > 0.0:
+            raise ValueError("fwdpy11 does not currently support cloning rates > 0.")
+
+    # Handle size change functions
+    if e.start_time != math.inf:
+        events.set_deme_sizes.append(
+            fwdpy11.SetDemeSize(
+                when=when, deme=idmap[deme_id], new_size=e.initial_size,
+            )
+        )
+        if e.final_size != e.initial_size:
+            if e.size_function != "exponential":
+                raise ValueError(
+                    f"Size change function must be exponential.  We got {e.size_function}"
+                )
+            G = fwdpy11.exponential_growth_rate(
+                e.initial_size, e.final_size, int(np.rint(time_converter(e.dt)))
+            )
+            events.set_growth_rates.append(
+                fwdpy11.SetExponentialGrowth(when=when, deme=idmap[deme_id], G=G)
+            )
     pass
 
 
-def _process_all_epochs(dg, idmap, events):
+def _process_all_epochs(
+    dg, idmap, model_times, burnin_generation, time_converter, events
+):
     for deme in dg.demes:
         for e in deme.epochs:
-            _process_epoch(e, idmap, events)
+            _process_epoch(
+                deme.id,
+                e,
+                idmap,
+                model_times,
+                burnin_generation,
+                time_converter,
+                events,
+            )
 
 
 def _process_migration(
@@ -226,15 +328,14 @@ def _build_from_deme_graph(
     initial_sizes = _get_initial_deme_sizes(dg, idmap)
     Nref = _get_ancestral_population_size(dg)
 
-    # This could be either math.inf or a finite value.
-    most_ancient_deme_start = _get_most_ancient_deme_start_time(dg)
-    # This could be >= 0, but not math.inf.  (That last claim
-    # is untested, but kinda has to be true.)
-    most_recent_deme_end = _get_most_recent_deme_end_time(dg)
+    burnin_generation = np.rint(burnin * Nref).astype(int)
+    model_times = _get_model_times(dg)
 
     events = _Fwdpy11Events()
 
-    _process_all_epochs(dg, idmap, events)
+    _process_all_epochs(
+        dg, idmap, model_times, burnin_generation, time_converter, events
+    )
 
     if dg.doi != "None":
         doi = dg.doi
@@ -252,6 +353,8 @@ def _build_from_deme_graph(
         metadata={
             "deme_labels": {j: i for i, j in idmap.items()},
             "initial_sizes": initial_sizes,
+            "burnin_time": burnin_generation,
+            "total_simulation_length": burnin_generation + model_times.model_duration,
         },
     )
 
