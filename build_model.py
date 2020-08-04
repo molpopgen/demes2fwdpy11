@@ -354,7 +354,8 @@ def _build_from_deme_graph(
             "deme_labels": {j: i for i, j in idmap.items()},
             "initial_sizes": initial_sizes,
             "burnin_time": burnin_generation,
-            "total_simulation_length": burnin_generation + model_times.model_duration,
+            "total_simulation_length": burnin_generation
+            + time_converter(model_times.model_duration),
         },
     )
 
