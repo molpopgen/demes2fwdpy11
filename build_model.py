@@ -114,6 +114,10 @@ class _Fwdpy11Events(object):
     migration_rate_changes: typing.List[_MigrationRateChange] = attr.Factory(list)
 
     def _build_migration_rate_changes(self) -> typing.List[fwdpy11.SetMigrationRates]:
+        # TODO: check for setting deme sizes to 0 and set all migration rates
+        #       to zero at that time.
+        # TODO: test the above for cases where there is migration FROM the deme
+        #       whose size got set to zero!!
         set_migration_rates: typing.List[fwdpy11.SetMigrationRates] = []
         return set_migration_rates
 
@@ -384,8 +388,141 @@ def _process_migrations(
             )
 
 
-def _process_pulse(p: demes.Pulse, idmap: typing.Dict, events: _Fwdpy11Events) -> None:
-    pass
+def _process_pulses(
+    dg: demes.DemeGraph,
+    idmap: typing.Dict,
+    model_times: _ModelTimes,
+    burnin_generation: int,
+    time_converter: _TimeConverter,
+    events: _Fwdpy11Events,
+) -> None:
+    for p in dg.pulses:
+        when = burnin_generation + time_converter(model_times.model_start_time - p.time)
+        events.migration_rate_changes.append(
+            _MigrationRateChange(
+                when=when,
+                source=idmap[p.source],
+                destination=idmap[p.dest],
+                rate=p.proportion,
+                from_deme_graph=False,
+            )
+        )
+
+
+def _process_admixtures(
+    dg: demes.DemeGraph,
+    idmap: typing.Dict,
+    model_times: _ModelTimes,
+    burnin_generation: int,
+    time_converter: _TimeConverter,
+    events: _Fwdpy11Events,
+) -> None:
+    for a in dg.admixtures:
+        when = burnin_generation + time_converter(model_times.model_start_time - a.time)
+        for parent, proportion in zip(a.parents, a.proportions):
+            events.migration_rate_changes.append(
+                _MigrationRateChange(
+                    when=when,
+                    source=idmap[parent],
+                    destination=idmap[a.child],
+                    rate=proportion,
+                    from_deme_graph=False,
+                )
+            )
+
+
+def _process_mergers(
+    dg: demes.DemeGraph,
+    idmap: typing.Dict,
+    model_times: _ModelTimes,
+    burnin_generation: int,
+    time_converter: _TimeConverter,
+    events: _Fwdpy11Events,
+) -> None:
+    for m in dg.mergers:
+        when = burnin_generation + time_converter(model_times.model_start_time - m.time)
+        for parent, proportion in zip(m.parents, m.proportions):
+            events.migration_rate_changes.append(
+                _MigrationRateChange(
+                    when=when,
+                    source=idmap[parent],
+                    destination=idmap[m.child],
+                    rate=proportion,
+                    from_deme_graph=False,
+                )
+            )
+            # FIXME: the following note isn't right.  We need the migrations
+            # to be nonzero at time ``when`` and to be reset the NEXT generation!!
+            # NOTE: all migration rates to and from this deme will be set to 0
+            # when the final model is built.
+            events.set_deme_sizes.append(
+                fwdpy11.SetDemeSize(when=when, deme=idmap[parent], new_size=0)
+            )
+
+
+def _process_splits(
+    dg: demes.DemeGraph,
+    idmap: typing.Dict,
+    model_times: _ModelTimes,
+    burnin_generation: int,
+    time_converter: _TimeConverter,
+    events: _Fwdpy11Events,
+) -> None:
+    """
+    A split is a "sudden" creation of > 1 offspring deme
+    from a parent and the parent ceases to exist.
+
+    Given that there is no proportions attribute, we infer/assume
+    (danger!) that each offspring deme gets 100% of its ancestry
+    from the parent.
+    """
+    for s in dg.splits:
+        when = burnin_generation + time_converter(model_times.model_start_time - s.time)
+        for c in s.children:
+            events.migration_rate_changes.append(
+                _MigrationRateChange(
+                    when=when,
+                    source=idmap[s.parent],
+                    destination=idmap[c],
+                    rate=1.0,
+                    from_deme_graph=False,
+                )
+            )
+        # FIXME: the following note isn't right.  We need the migrations
+        # to be nonzero at time ``when`` and to be reset the NEXT generation!!
+        # NOTE: all migration rates to and from this deme will be set to 0
+        # when the final model is built.
+        events.set_deme_sizes.append(
+            fwdpy11.SetDemeSize(when=when, deme=idmap[s.parent], new_size=0)
+        )
+
+
+def _process_branches(
+    dg: demes.DemeGraph,
+    idmap: typing.Dict,
+    model_times: _ModelTimes,
+    burnin_generation: int,
+    time_converter: _TimeConverter,
+    events: _Fwdpy11Events,
+) -> None:
+    """
+    A branch creates a child deme with 100% ancestry from the parent.
+    The parent continues to exist.
+
+    The 1-to-1 relationship between parent and child means 100% of the
+    child's ancestry is from parent.
+    """
+    for b in dg.branches:
+        when = burnin_generation + time_converter(model_times.model_start_time - b.time)
+        events.migration_rate_changes.append(
+            _MigrationRateChange(
+                when=when,
+                source=idmap[b.parent],
+                destination=idmap[b.child],
+                rate=1.0,
+                from_deme_graph=False,
+            )
+        )
 
 
 def _build_from_deme_graph(
@@ -410,6 +547,13 @@ def _build_from_deme_graph(
     _process_migrations(
         dg, idmap, model_times, burnin_generation, time_converter, events
     )
+    _process_pulses(dg, idmap, model_times, burnin_generation, time_converter, events)
+    _process_admixtures(
+        dg, idmap, model_times, burnin_generation, time_converter, events
+    )
+    _process_mergers(dg, idmap, model_times, burnin_generation, time_converter, events)
+    _process_splits(dg, idmap, model_times, burnin_generation, time_converter, events)
+    _process_branches(dg, idmap, model_times, burnin_generation, time_converter, events)
 
     if dg.doi != "None":
         doi = dg.doi
@@ -443,6 +587,11 @@ def build_from_yaml(
     public interface, although static functions are odd in Python?
     """
     dg = demes.load(filename)
+    print(dg.admixtures)
+    print(dg.mergers)
+    print(dg.splits)
+    print(dg.branches)
+    print(dg.pulses)
     return _build_from_deme_graph(dg, burnin, {"demes_yaml_file": args.yaml})
 
 
