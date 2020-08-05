@@ -113,8 +113,12 @@ class _Fwdpy11Events(object):
     # The following do not correspond to fwdpy11 event types.
     migration_rate_changes: typing.List[_MigrationRateChange] = attr.Factory(list)
 
-    def build_model(self) -> fwdpy11.DiscreteDemography:
+    def _build_migration_rate_changes(self) -> typing.List[fwdpy11.SetMigrationRates]:
         set_migration_rates: typing.List[fwdpy11.SetMigrationRates] = []
+        return set_migration_rates
+
+    def build_model(self) -> fwdpy11.DiscreteDemography:
+        set_migration_rates = self._build_migration_rate_changes()
         return fwdpy11.DiscreteDemography(
             mass_migrations=self.mass_migrations,
             set_deme_sizes=self.set_deme_sizes,
