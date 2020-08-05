@@ -57,7 +57,7 @@ class _TimeConverter(object):
             return lambda x: x
 
     def __call__(self, input_time: demes.demes.Time) -> int:
-        return np.rint(self.converter(input_time)).astype(int)
+        return int(np.rint(self.converter(input_time)).astype(int))
 
 
 @attr.s(frozen=True, auto_attribs=True)
@@ -70,6 +70,28 @@ class _ModelTimes(object):
     model_start_time: demes.demes.Time
     model_end_time: demes.demes.Time
     model_duration: int = attr.ib(validator=attr.validators.instance_of(int))
+
+
+@attr.s(auto_attribs=True)
+class _MigrationRateChange(object):
+    """
+    Use to make registry of migration rate changes.
+
+    """
+
+    when: int = attr.ib(
+        validator=[demes.demes.non_negative, attr.validators.instance_of(int)]
+    )
+    source: int = attr.ib(
+        validator=[demes.demes.non_negative, attr.validators.instance_of(int)]
+    )
+    destination: int = attr.ib(
+        validator=[demes.demes.non_negative, attr.validators.instance_of(int)]
+    )
+    rate: float = attr.ib(
+        validator=[demes.demes.non_negative, attr.validators.instance_of(float)]
+    )
+    from_deme_graph: bool = attr.ib(validator=attr.validators.instance_of(bool))
 
 
 @fwdpy11.class_decorators.attr_class_to_from_dict_no_recurse
@@ -86,11 +108,21 @@ class _Fwdpy11Events(object):
     set_deme_sizes: typing.List[fwdpy11.SetDemeSize] = attr.Factory(list)
     set_growth_rates: typing.List[fwdpy11.SetExponentialGrowth] = attr.Factory(list)
     set_selfing_rates: typing.List[fwdpy11.SetSelfingRate] = attr.Factory(list)
-    set_migration_rates: typing.List[fwdpy11.SetMigrationRates] = attr.Factory(list)
     migmatrix: typing.Optional[fwdpy11.MigrationMatrix] = None
 
+    # The following do not correspond to fwdpy11 event types.
+    migration_rate_changes: typing.List[_MigrationRateChange] = attr.Factory(list)
+
     def build_model(self) -> fwdpy11.DiscreteDemography:
-        return fwdpy11.DiscreteDemography(**self.asdict())
+        set_migration_rates: typing.List[fwdpy11.SetMigrationRates] = []
+        return fwdpy11.DiscreteDemography(
+            mass_migrations=self.mass_migrations,
+            set_deme_sizes=self.set_deme_sizes,
+            set_growth_rates=self.set_growth_rates,
+            set_selfing_rates=self.set_selfing_rates,
+            migmatrix=self.migmatrix,
+            set_migration_rates=set_migration_rates,
+        )
 
 
 def _build_deme_id_to_int_map(dg: demes.DemeGraph) -> typing.Dict:
@@ -307,10 +339,45 @@ def _process_all_epochs(
             )
 
 
-def _process_migration(
-    m: demes.Migration, idmap: typing.Dict, events: _Fwdpy11Events
+def _process_migrations(
+    dg: demes.DemeGraph,
+    idmap: typing.Dict,
+    model_times: _ModelTimes,
+    burnin_generation: int,
+    time_converter: _TimeConverter,
+    events: _Fwdpy11Events,
 ) -> None:
-    pass
+    """
+    Make a record of everything in dg.migrations
+
+    When a migration rate has an end time > 0, it gets entered twice.
+    """
+    for m in dg.migrations:
+        when = burnin_generation + time_converter(
+            model_times.model_start_time - m.start_time
+        )
+        events.migration_rate_changes.append(
+            _MigrationRateChange(
+                when=when,
+                source=idmap[m.source],
+                destination=idmap[m.dest],
+                rate=m.rate,
+                from_deme_graph=True,
+            )
+        )
+        if m.end_time > 0:
+            when = burnin_generation + time_converter(
+                model_times.model_start_time - m.end_time
+            )
+            events.migration_rate_changes.append(
+                _MigrationRateChange(
+                    when=when,
+                    source=idmap[m.source],
+                    destination=idmap[m.dest],
+                    rate=0.0,
+                    from_deme_graph=True,
+                )
+            )
 
 
 def _process_pulse(p: demes.Pulse, idmap: typing.Dict, events: _Fwdpy11Events) -> None:
@@ -328,12 +395,15 @@ def _build_from_deme_graph(
     initial_sizes = _get_initial_deme_sizes(dg, idmap)
     Nref = _get_ancestral_population_size(dg)
 
-    burnin_generation = np.rint(burnin * Nref).astype(int)
+    burnin_generation = int(np.rint(burnin * Nref))
     model_times = _get_model_times(dg)
 
     events = _Fwdpy11Events()
 
     _process_all_epochs(
+        dg, idmap, model_times, burnin_generation, time_converter, events
+    )
+    _process_migrations(
         dg, idmap, model_times, burnin_generation, time_converter, events
     )
 
