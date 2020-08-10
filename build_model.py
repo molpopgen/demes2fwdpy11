@@ -616,6 +616,7 @@ def build_from_yaml(
     public interface, although static functions are odd in Python?
     """
     dg = demes.load(filename)
+    print(dg)
     print(dg.admixtures)
     print(dg.mergers)
     print(dg.splits)
