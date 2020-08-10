@@ -207,7 +207,11 @@ def _get_model_times(dg: demes.DemeGraph) -> _ModelTimes:
     1. The time when the demographic model starts.
     2. The time when it ends.
     3. The total simulation length.
+
     """
+    # FIXME: this function isn't working well.
+    # For example, twodemes.yml and twodemes_one_goes_away.yml
+    # both break it.
     oldest_deme_time = _get_most_ancient_deme_start_time(dg)
     most_recent_deme_end = _get_most_recent_deme_end_time(dg)
 
