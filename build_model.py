@@ -72,6 +72,24 @@ class _ModelTimes(object):
     model_duration: int = attr.ib(validator=attr.validators.instance_of(int))
 
 
+@attr.s(frozen=True, auto_attribs=True)
+class _DemeExtinctionEvent(object):
+    """
+    When demes are set to go extinct, migration
+    rates need updating:
+
+    1. There can be no further migration into this deme.
+    2. There can be no further migration from this deme.
+
+    The from_event attribute refers to an extinction
+    that occurs due to an event verb.
+    """
+
+    when: int = attr.ib(validator=attr.validators.instance_of(int))
+    deme: int = attr.ib(validator=attr.validators.instance_of(int))
+    from_event: bool
+
+
 @attr.s(auto_attribs=True)
 class _MigrationRateChange(object):
     """
@@ -112,6 +130,7 @@ class _Fwdpy11Events(object):
 
     # The following do not correspond to fwdpy11 event types.
     migration_rate_changes: typing.List[_MigrationRateChange] = attr.Factory(list)
+    deme_extinctions: typing.List[_DemeExtinctionEvent] = attr.Factory(list)
 
     def _build_migration_rate_changes(self) -> typing.List[fwdpy11.SetMigrationRates]:
         # TODO: check for setting deme sizes to 0 and set all migration rates
@@ -455,8 +474,11 @@ def _process_mergers(
             # to be nonzero at time ``when`` and to be reset the NEXT generation!!
             # NOTE: all migration rates to and from this deme will be set to 0
             # when the final model is built.
-            events.set_deme_sizes.append(
-                fwdpy11.SetDemeSize(when=when, deme=idmap[parent], new_size=0)
+            # events.set_deme_sizes.append(
+            #     fwdpy11.SetDemeSize(when=when, deme=idmap[parent], new_size=0)
+            # )
+            events.deme_extinctions.append(
+                _DemeExtinctionEvent(when=when, deme=idmap[parent], from_event=True)
             )
 
 
@@ -492,8 +514,11 @@ def _process_splits(
         # to be nonzero at time ``when`` and to be reset the NEXT generation!!
         # NOTE: all migration rates to and from this deme will be set to 0
         # when the final model is built.
-        events.set_deme_sizes.append(
-            fwdpy11.SetDemeSize(when=when, deme=idmap[s.parent], new_size=0)
+        # events.set_deme_sizes.append(
+        #     fwdpy11.SetDemeSize(when=when, deme=idmap[s.parent], new_size=0)
+        # )
+        events.deme_extinctions.append(
+            _DemeExtinctionEvent(when=when, deme=idmap[s.parent], from_event=True)
         )
 
 
