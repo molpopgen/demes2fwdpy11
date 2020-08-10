@@ -147,10 +147,21 @@ class _Fwdpy11Events(object):
         self.deme_extinctions = sorted(
             self.deme_extinctions, key=lambda x: (x.when, x.deme)
         )
-        for m in self.migration_rate_changes:
-            print(m)
-        for e in self.deme_extinctions:
-            print(e)
+        m = 0
+        while m < len(self.migration_rate_changes):
+            mm = m + 1
+            while (
+                mm < len(self.migration_rate_changes)
+                and self.migration_rate_changes[mm].when == self.migration_rate_changes[m].when
+            ):
+                mm += 1
+            extinctions = [i for i in self.deme_extinctions if i.when == self.migration_rate_changes[m].when]
+            print("-----")
+            for i in range(m, mm):
+                print(self.migration_rate_changes[i])
+            for e in extinctions:
+                print(e)
+            m = mm
         return set_migration_rates
 
     def build_model(self) -> fwdpy11.DiscreteDemography:
