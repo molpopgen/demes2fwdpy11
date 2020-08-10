@@ -141,11 +141,16 @@ class _Fwdpy11Events(object):
         #       whose size got set to zero!!
         set_migration_rates: typing.List[fwdpy11.SetMigrationRates] = []
         self.migration_rate_changes = sorted(
-            self.migration_rate_changes, key=lambda x: (x.when, x.destination, x.source)
+            self.migration_rate_changes,
+            key=lambda x: (x.when, x.destination, x.source, x.from_deme_graph),
         )
         self.deme_extinctions = sorted(
             self.deme_extinctions, key=lambda x: (x.when, x.deme)
         )
+        for m in self.migration_rate_changes:
+            print(m)
+        for e in self.deme_extinctions:
+            print(e)
         return set_migration_rates
 
     def build_model(self) -> fwdpy11.DiscreteDemography:
