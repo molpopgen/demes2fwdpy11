@@ -14,6 +14,8 @@ import numpy as np
 # TODO: we should have an early check on things.
 # For example, check that all size change functions are valid, etc..
 
+# TODO: we need to have a test case for a final size of zero.
+
 
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
@@ -138,6 +140,12 @@ class _Fwdpy11Events(object):
         # TODO: test the above for cases where there is migration FROM the deme
         #       whose size got set to zero!!
         set_migration_rates: typing.List[fwdpy11.SetMigrationRates] = []
+        self.migration_rate_changes = sorted(
+            self.migration_rate_changes, key=lambda x: (x.when, x.destination, x.source)
+        )
+        self.deme_extinctions = sorted(
+            self.deme_extinctions, key=lambda x: (x.when, x.deme)
+        )
         return set_migration_rates
 
     def build_model(self) -> fwdpy11.DiscreteDemography:
