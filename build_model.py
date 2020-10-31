@@ -3,6 +3,7 @@ import math
 import sys
 import typing
 import warnings
+import copy
 
 import attr
 import demes
@@ -31,37 +32,6 @@ def make_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _valid_time_unit(self, attribute, value) -> None:
-    if value not in ["years", "generations"]:
-        raise ValueError(f"{attribute.name} must be years or generations")
-
-
-@attr.s(auto_attribs=True)
-class _TimeConverter(object):
-    """
-    A callable class that'll convert input
-    times (int whatever units) to output
-    times in generations.
-    """
-
-    time_units: str = attr.ib(validator=_valid_time_unit)
-    generation_time: demes.demes.Time = attr.ib(
-        validator=[demes.demes.positive, demes.demes.finite]
-    )
-
-    def __attrs_post_init__(self):
-        self.converter = self._build_time_unit_converter()
-
-    def _build_time_unit_converter(self) -> typing.Callable[[demes.demes.Time], int]:
-        if self.time_units == "years":
-            return lambda x: x / self.generation_time
-        elif self.time_units == "generations":
-            return lambda x: x
-
-    def __call__(self, input_time: demes.demes.Time) -> int:
-        return int(np.rint(self.converter(input_time)).astype(int))
-
-
 @attr.s(frozen=True, auto_attribs=True)
 class _ModelTimes(object):
     """
@@ -72,24 +42,6 @@ class _ModelTimes(object):
     model_start_time: demes.demes.Time
     model_end_time: demes.demes.Time
     model_duration: int = attr.ib(validator=attr.validators.instance_of(int))
-
-
-@attr.s(frozen=True, auto_attribs=True)
-class _DemeExtinctionEvent(object):
-    """
-    When demes are set to go extinct, migration
-    rates need updating:
-
-    1. There can be no further migration into this deme.
-    2. There can be no further migration from this deme.
-
-    The from_event attribute refers to an extinction
-    that occurs due to an event verb.
-    """
-
-    when: int = attr.ib(validator=attr.validators.instance_of(int))
-    deme: int = attr.ib(validator=attr.validators.instance_of(int))
-    from_event: bool
 
 
 @attr.s(auto_attribs=True)
@@ -108,9 +60,7 @@ class _MigrationRateChange(object):
     destination: int = attr.ib(
         validator=[demes.demes.non_negative, attr.validators.instance_of(int)]
     )
-    rate: float = attr.ib(
-        validator=[demes.demes.non_negative, attr.validators.instance_of(float)]
-    )
+    rate_change: float = attr.ib(validator=[attr.validators.instance_of(float)])
     from_deme_graph: bool = attr.ib(validator=attr.validators.instance_of(bool))
 
 
@@ -128,40 +78,109 @@ class _Fwdpy11Events(object):
     set_deme_sizes: typing.List[fwdpy11.SetDemeSize] = attr.Factory(list)
     set_growth_rates: typing.List[fwdpy11.SetExponentialGrowth] = attr.Factory(list)
     set_selfing_rates: typing.List[fwdpy11.SetSelfingRate] = attr.Factory(list)
+    idmap: typing.Dict = None
+
+    # The initial continuous migration matrix
     migmatrix: typing.Optional[fwdpy11.MigrationMatrix] = None
 
     # The following do not correspond to fwdpy11 event types.
     migration_rate_changes: typing.List[_MigrationRateChange] = attr.Factory(list)
-    deme_extinctions: typing.List[_DemeExtinctionEvent] = attr.Factory(list)
+    # deme_extinctions: typing.List[_DemeExtinctionEvent] = attr.Factory(list)
+
+    def _update_changes_at_m(self, changes_at_m, migration_rate_change):
+        # tally changes
+        if migration_rate_change.from_deme_graph:
+            changes_at_m[0][migration_rate_change.destination][
+                migration_rate_change.source
+            ] += migration_rate_change.rate_change
+            changes_at_m[0][migration_rate_change.destination][
+                migration_rate_change.destination
+            ] -= migration_rate_change.rate_change
+        else:
+            changes_at_m[1][migration_rate_change.destination][
+                migration_rate_change.source
+            ] += migration_rate_change.rate_change
+            changes_at_m[1][migration_rate_change.destination][
+                migration_rate_change.destination
+            ] -= migration_rate_change.rate_change
+
+    def _update_continuous_mass_migrations(self, changes_at_m, M_cont, M_mass):
+        M_cont += changes_at_m[0]
+        M_mass += changes_at_m[1]
+        return M_cont, M_mass
+
+    def _migration_matrix_from_partition(self, M_cont, M_mass):
+        new_migmatrix = np.diag(np.diag(M_mass)).dot(M_cont) + (
+            M_mass - np.diag(np.diag(M_mass))
+        )
+        return new_migmatrix
 
     def _build_migration_rate_changes(self) -> typing.List[fwdpy11.SetMigrationRates]:
-        # TODO: check for setting deme sizes to 0 and set all migration rates
-        #       to zero at that time.
-        # TODO: test the above for cases where there is migration FROM the deme
-        #       whose size got set to zero!!
+        # We track the coninuous migration rates, and then augment with a matrix that
+        # specifies changes to migration due to "instantaneous" events. The
+        # instantaneous migration matrix is typically just the identity matrix,
+        # (i.e. uses continuous rates, but off diag elements scale continuous rates
+        # and add to ancestry source from the off diagonal source column)
+        # but for some generations has ancestry pointing to different demes due
+        # to pulse, split, etc events
+        if self.migmatrix is not None:
+            M_cont = copy.deepcopy(self.migmatrix)
+        else:
+            M_cont = np.eye(len(self.idmap))
+        M_mass = np.eye(len(self.idmap))
+
         set_migration_rates: typing.List[fwdpy11.SetMigrationRates] = []
+
         self.migration_rate_changes = sorted(
             self.migration_rate_changes,
             key=lambda x: (x.when, x.destination, x.source, x.from_deme_graph),
         )
-        self.deme_extinctions = sorted(
-            self.deme_extinctions, key=lambda x: (x.when, x.deme)
-        )
+        # self.deme_extinctions = sorted(
+        #    self.deme_extinctions, key=lambda x: (x.when, x.deme)
+        # )
         m = 0
+        changes_at_m = [
+            np.zeros((len(self.idmap), len(self.idmap))),  # from DemeGraph
+            np.zeros((len(self.idmap), len(self.idmap))),  # not from DemeGraph
+        ]
         while m < len(self.migration_rate_changes):
+            # gather all migration rate changes and extinction events
+            # that occur at a given time
+            self._update_changes_at_m(changes_at_m, self.migration_rate_changes[m])
             mm = m + 1
+
             while (
                 mm < len(self.migration_rate_changes)
-                and self.migration_rate_changes[mm].when == self.migration_rate_changes[m].when
+                and self.migration_rate_changes[mm].when
+                == self.migration_rate_changes[m].when
             ):
+                self._update_changes_at_m(changes_at_m, self.migration_rate_changes[mm])
                 mm += 1
-            extinctions = [i for i in self.deme_extinctions if i.when == self.migration_rate_changes[m].when]
-            print("-----")
-            for i in range(m, mm):
-                print(self.migration_rate_changes[i])
-            for e in extinctions:
-                print(e)
+
+            # update M_cont and M_mass
+            M_cont, M_mass = self._update_continuous_mass_migrations(
+                changes_at_m, M_cont, M_mass
+            )
+            # get the new migration matrix
+            new_migmatrix = self._migration_matrix_from_partition(M_cont, M_mass)
+            # for any rows that don't match, add a fwdpy11.SetMigrationRate
+            for i in range(len(self.idmap)):
+                if np.any(self.migmatrix[i] != new_migmatrix[i]):
+                    set_migration_rates.append(
+                        fwdpy11.SetMigrationRates(
+                            self.migration_rate_changes[m].when, i, new_migmatrix[i]
+                        )
+                    )
+
+            self.migmatrix = new_migmatrix
+
             m = mm
+            # reset changes
+            changes_at_m = [
+                np.zeros((len(self.idmap), len(self.idmap))),  # from DemeGraph
+                np.zeros((len(self.idmap), len(self.idmap))),  # not from DemeGraph
+            ]
+
         return set_migration_rates
 
     def build_model(self) -> fwdpy11.DiscreteDemography:
@@ -217,11 +236,11 @@ def _get_initial_deme_sizes(dg: demes.DemeGraph, idmap: typing.Dict) -> typing.D
 
 
 def _get_most_ancient_deme_start_time(dg: demes.DemeGraph) -> demes.demes.Time:
-    return max([e.start_time for d in dg.demes for e in d.epochs])
+    return max([d.start_time for d in dg.demes])
 
 
 def _get_most_recent_deme_end_time(dg: demes.DemeGraph) -> demes.demes.Time:
-    return min([e.end_time for d in dg.demes for e in d.epochs])
+    return min([d.end_time for d in dg.demes])
 
 
 def _get_model_times(dg: demes.DemeGraph) -> _ModelTimes:
@@ -241,18 +260,15 @@ def _get_model_times(dg: demes.DemeGraph) -> _ModelTimes:
 
     model_start_time = oldest_deme_time
     if oldest_deme_time == math.inf:
-        # Find the end times for all demes
-        # with start_time == math.inf.
-        # Determine if there's any other deme
-        # whose start time is < any of those
-        # end times.
-        ends_inf = [
-            e.end_time for d in dg.demes for e in d.epochs if e.start_time == math.inf
-        ]
-        starts = [
-            e.start_time for d in dg.demes for e in d.epochs if e.start_time != math.inf
-        ]
-        model_start_time = max([i for i in starts if i >= max(ends_inf)])
+        # We want to find the time of first event or
+        # the first demographic change, which is when
+        # burnin will end. To do this, get a list of
+        # first size change for all demes with inf
+        # start time, and the start time for all other
+        # demes, and take max of those.
+        ends_inf = [d.epochs[0].end_time for d in dg.demes if d.start_time == math.inf]
+        starts = [d.start_time for d in dg.demes if d.start_time != math.inf]
+        model_start_time = max(ends_inf + starts)
 
     if most_recent_deme_end != 0:
         model_duration = model_start_time - most_recent_deme_end
@@ -293,40 +309,18 @@ def _set_initial_migration_matrix(
     dg: demes.DemeGraph, idmap: typing.Dict, events: _Fwdpy11Events
 ) -> None:
     """
-    If there are no migrations nor pulses in dg,
-    then the model can use None for migmatrix.
-    Otherwise, we need to set it.
-
-    However, there's a complication here. Admixture
-    events are given as backwards-in-time ancestry
-    proportions.  We have two ways to implement them:
-
-    1. As a fwdpy11.MassMigration event, which
-       copies a fraction of the ancestral deme
-       to the new deme.  Thus, to get the new
-       deme's ancestry proportion right, we
-       need to know exact sizes.
-
-    2. As a single-generation change in the migration rate.
-       In the simplest case, this works nicely.  However,
-       there is a corner case when the migration rates
-       are set for the model in the generation immediately
-       after the mass migration. fwdpy11 doesn't allow
-       you to set the migration rates into a deme > 1
-       time in a given generation.
+    Set any migration rates that have start time of inf. More
+    recent migration rate changes or start time set the model
+    start time at or before that time
     """
-    pass
+    migmatrix = np.eye(len(idmap))
+    if len(dg.migrations) > 0:
+        for m in dg.migrations:
+            if m.start_time == math.inf:
+                migmatrix[m.dest][m.source] += m.rate
+                migmatrix[m.dest][m.dest] -= m.rate
 
-
-# FIXME: we aren't processing all of the verbs that we need, but
-# we need more YAML examples first.
-# migrations (setting migration rates)
-# The following are all flavors of mass migration:
-# pulses
-# splits
-# branches
-# admixtures
-# mergers
+    events.migmatrix = migmatrix
 
 
 def _process_epoch(
@@ -335,7 +329,6 @@ def _process_epoch(
     idmap: typing.Dict,
     model_times: _ModelTimes,
     burnin_generation: int,
-    time_converter: _TimeConverter,
     events: _Fwdpy11Events,
 ) -> None:
     """
@@ -344,24 +337,27 @@ def _process_epoch(
     Since fwdpy11 currently doesn't understand cloning, we need
     to raise an error if the rate is not None or nonzero.
     """
-    when = burnin_generation + time_converter(
-        model_times.model_start_time - e.start_time
-    )
+    if e.start_time != math.inf:
+        when = burnin_generation + int(model_times.model_start_time - e.start_time)
+    else:
+        when = 0
+
     if e.selfing_rate is not None:
-        if e.start_time == math.inf:
-            events.set_selfing_rates.append(
-                fwdpy11.SetSelfingRate(when=when, deme=idmap[deme_id], S=e.selfing_rate)
-            )
+        events.set_selfing_rates.append(
+            fwdpy11.SetSelfingRate(when=when, deme=idmap[deme_id], S=e.selfing_rate)
+        )
 
     if e.cloning_rate is not None:
         if e.cloning_rate > 0.0:
             raise ValueError("fwdpy11 does not currently support cloning rates > 0.")
 
-    # Handle size change functions
     if e.start_time != math.inf:
+        # Handle size change functions
         events.set_deme_sizes.append(
             fwdpy11.SetDemeSize(
-                when=when, deme=idmap[deme_id], new_size=e.initial_size,
+                when=when,
+                deme=idmap[deme_id],
+                new_size=e.initial_size,
             )
         )
         if e.final_size != e.initial_size:
@@ -370,17 +366,17 @@ def _process_epoch(
                     f"Size change function must be exponential.  We got {e.size_function}"
                 )
             G = fwdpy11.exponential_growth_rate(
-                e.initial_size, e.final_size, int(np.rint(time_converter(e.dt)))
+                e.initial_size, e.final_size, int(np.rint(e.time_span))
             )
             events.set_growth_rates.append(
                 fwdpy11.SetExponentialGrowth(when=when, deme=idmap[deme_id], G=G)
             )
-    pass
 
 
-def _process_all_epochs(
-    dg, idmap, model_times, burnin_generation, time_converter, events
-):
+def _process_all_epochs(dg, idmap, model_times, burnin_generation, events):
+    """
+    Processes all epochs of all demes to set sizes and selfing rates.
+    """
     for deme in dg.demes:
         for e in deme.epochs:
             _process_epoch(
@@ -389,8 +385,18 @@ def _process_all_epochs(
                 idmap,
                 model_times,
                 burnin_generation,
-                time_converter,
                 events,
+            )
+        # if deme ends before time zero, we set set its size to zero
+        # we proces deme extintions here instead of in the events
+        if deme.end_time > 0:
+            events.set_deme_sizes.append(
+                fwdpy11.SetDemeSize(
+                    when=burnin_generation
+                    + int(model_times.model_start_time - deme.end_time),
+                    deme=idmap[deme.id],
+                    new_size=0,
+                )
             )
 
 
@@ -399,7 +405,6 @@ def _process_migrations(
     idmap: typing.Dict,
     model_times: _ModelTimes,
     burnin_generation: int,
-    time_converter: _TimeConverter,
     events: _Fwdpy11Events,
 ) -> None:
     """
@@ -408,28 +413,24 @@ def _process_migrations(
     When a migration rate has an end time > 0, it gets entered twice.
     """
     for m in dg.migrations:
-        when = burnin_generation + time_converter(
-            model_times.model_start_time - m.start_time
-        )
+        when = burnin_generation + int(model_times.model_start_time - m.start_time)
         events.migration_rate_changes.append(
             _MigrationRateChange(
                 when=when,
                 source=idmap[m.source],
                 destination=idmap[m.dest],
-                rate=m.rate,
+                rate_change=m.rate,
                 from_deme_graph=True,
             )
         )
         if m.end_time > 0:
-            when = burnin_generation + time_converter(
-                model_times.model_start_time - m.end_time
-            )
+            when = burnin_generation + int(model_times.model_start_time - m.end_time)
             events.migration_rate_changes.append(
                 _MigrationRateChange(
                     when=when,
                     source=idmap[m.source],
                     destination=idmap[m.dest],
-                    rate=0.0,
+                    rate_change=-m.rate,
                     from_deme_graph=True,
                 )
             )
@@ -440,17 +441,29 @@ def _process_pulses(
     idmap: typing.Dict,
     model_times: _ModelTimes,
     burnin_generation: int,
-    time_converter: _TimeConverter,
     events: _Fwdpy11Events,
 ) -> None:
+    ### we want to change this to play nicely with continuous migration: the
+    ### 1-p.proportion of ancestry still behaves according to the continuous
+    ### migration that may be going on.
+    ### FIX ME
     for p in dg.pulses:
-        when = burnin_generation + time_converter(model_times.model_start_time - p.time)
+        when = burnin_generation + int(model_times.model_start_time - p.time)
         events.migration_rate_changes.append(
             _MigrationRateChange(
                 when=when,
                 source=idmap[p.source],
                 destination=idmap[p.dest],
-                rate=p.proportion,
+                rate_change=p.proportion,
+                from_deme_graph=False,
+            )
+        )
+        events.migration_rate_changes.append(
+            _MigrationRateChange(
+                when=when + 1,
+                source=idmap[p.source],
+                destination=idmap[p.dest],
+                rate_chant=-p.proportion,
                 from_deme_graph=False,
             )
         )
@@ -461,18 +474,26 @@ def _process_admixtures(
     idmap: typing.Dict,
     model_times: _ModelTimes,
     burnin_generation: int,
-    time_converter: _TimeConverter,
     events: _Fwdpy11Events,
 ) -> None:
     for a in dg.admixtures:
-        when = burnin_generation + time_converter(model_times.model_start_time - a.time)
+        when = burnin_generation + int(model_times.model_start_time - a.time)
         for parent, proportion in zip(a.parents, a.proportions):
             events.migration_rate_changes.append(
                 _MigrationRateChange(
                     when=when,
                     source=idmap[parent],
                     destination=idmap[a.child],
-                    rate=proportion,
+                    rate_change=proportion,
+                    from_deme_graph=False,
+                )
+            )
+            events.migration_rate_changes.append(
+                _MigrationRateChange(
+                    when=when + 1,
+                    source=idmap[parent],
+                    destination=idmap[a.child],
+                    rate_change=-proportion,
                     from_deme_graph=False,
                 )
             )
@@ -483,30 +504,28 @@ def _process_mergers(
     idmap: typing.Dict,
     model_times: _ModelTimes,
     burnin_generation: int,
-    time_converter: _TimeConverter,
     events: _Fwdpy11Events,
 ) -> None:
     for m in dg.mergers:
-        when = burnin_generation + time_converter(model_times.model_start_time - m.time)
+        when = burnin_generation + int(model_times.model_start_time - m.time)
         for parent, proportion in zip(m.parents, m.proportions):
             events.migration_rate_changes.append(
                 _MigrationRateChange(
                     when=when,
                     source=idmap[parent],
                     destination=idmap[m.child],
-                    rate=proportion,
+                    rate_change=proportion,
                     from_deme_graph=False,
                 )
             )
-            # FIXME: the following note isn't right.  We need the migrations
-            # to be nonzero at time ``when`` and to be reset the NEXT generation!!
-            # NOTE: all migration rates to and from this deme will be set to 0
-            # when the final model is built.
-            # events.set_deme_sizes.append(
-            #     fwdpy11.SetDemeSize(when=when, deme=idmap[parent], new_size=0)
-            # )
-            events.deme_extinctions.append(
-                _DemeExtinctionEvent(when=when, deme=idmap[parent], from_event=True)
+            events.migration_rate_changes.append(
+                _MigrationRateChange(
+                    when=when + 1,
+                    source=idmap[parent],
+                    destination=idmap[m.child],
+                    rate_change=-proportion,
+                    from_deme_graph=False,
+                )
             )
 
 
@@ -515,7 +534,6 @@ def _process_splits(
     idmap: typing.Dict,
     model_times: _ModelTimes,
     burnin_generation: int,
-    time_converter: _TimeConverter,
     events: _Fwdpy11Events,
 ) -> None:
     """
@@ -527,27 +545,28 @@ def _process_splits(
     from the parent.
     """
     for s in dg.splits:
-        when = burnin_generation + time_converter(model_times.model_start_time - s.time)
+        when = burnin_generation + int(model_times.model_start_time - s.time)
         for c in s.children:
+            # one generation of migration to move lineages from parent to children
             events.migration_rate_changes.append(
                 _MigrationRateChange(
                     when=when,
                     source=idmap[s.parent],
                     destination=idmap[c],
-                    rate=1.0,
+                    rate_change=1.0,
                     from_deme_graph=False,
                 )
             )
-        # FIXME: the following note isn't right.  We need the migrations
-        # to be nonzero at time ``when`` and to be reset the NEXT generation!!
-        # NOTE: all migration rates to and from this deme will be set to 0
-        # when the final model is built.
-        # events.set_deme_sizes.append(
-        #     fwdpy11.SetDemeSize(when=when, deme=idmap[s.parent], new_size=0)
-        # )
-        events.deme_extinctions.append(
-            _DemeExtinctionEvent(when=when, deme=idmap[s.parent], from_event=True)
-        )
+            # turn off that migration after one generation
+            events.migration_rate_changes.append(
+                _MigrationRateChange(
+                    when=when + 1,
+                    source=idmap[s.parent],
+                    destination=idmap[c],
+                    rate_change=-1.0,
+                    from_deme_graph=False,
+                )
+            )
 
 
 def _process_branches(
@@ -555,7 +574,6 @@ def _process_branches(
     idmap: typing.Dict,
     model_times: _ModelTimes,
     burnin_generation: int,
-    time_converter: _TimeConverter,
     events: _Fwdpy11Events,
 ) -> None:
     """
@@ -566,25 +584,38 @@ def _process_branches(
     child's ancestry is from parent.
     """
     for b in dg.branches:
-        when = burnin_generation + time_converter(model_times.model_start_time - b.time)
+        when = burnin_generation + int(model_times.model_start_time - b.time)
+        # turn on migration for one generation at "when"
         events.migration_rate_changes.append(
             _MigrationRateChange(
                 when=when,
                 source=idmap[b.parent],
                 destination=idmap[b.child],
-                rate=1.0,
+                rate_change=1.0,
+                from_deme_graph=False,
+            )
+        )
+        # end that migration after one generation
+        events.migration_rate_changes.append(
+            _MigrationRateChange(
+                when=when + 1,
+                source=idmap[b.parent],
+                destination=idmap[b.child],
+                rate_change=-1.0,
                 from_deme_graph=False,
             )
         )
 
 
-def _build_from_deme_graph(
+def build_from_deme_graph(
     dg: demes.DemeGraph, burnin: int, source: typing.Optional[typing.Dict] = None
 ) -> fwdpy11.demographic_models.DemographicModelDetails:
     """
     The workhorse.
     """
-    time_converter = _TimeConverter(dg.time_units, dg.generation_time)
+    # dg must be in generations - replaces time_converter
+    dg = dg.in_generations()
+
     idmap = _build_deme_id_to_int_map(dg)
     initial_sizes = _get_initial_deme_sizes(dg, idmap)
     Nref = _get_ancestral_population_size(dg)
@@ -592,27 +623,21 @@ def _build_from_deme_graph(
     burnin_generation = int(np.rint(burnin * Nref))
     model_times = _get_model_times(dg)
 
-    events = _Fwdpy11Events()
+    events = _Fwdpy11Events(idmap=idmap)
 
-    _process_all_epochs(
-        dg, idmap, model_times, burnin_generation, time_converter, events
-    )
-    _process_migrations(
-        dg, idmap, model_times, burnin_generation, time_converter, events
-    )
-    _process_pulses(dg, idmap, model_times, burnin_generation, time_converter, events)
-    _process_admixtures(
-        dg, idmap, model_times, burnin_generation, time_converter, events
-    )
-    _process_mergers(dg, idmap, model_times, burnin_generation, time_converter, events)
-    _process_splits(dg, idmap, model_times, burnin_generation, time_converter, events)
-    _process_branches(dg, idmap, model_times, burnin_generation, time_converter, events)
+    _set_initial_migration_matrix(dg, idmap, events)
+    _process_all_epochs(dg, idmap, model_times, burnin_generation, events)
+    _process_migrations(dg, idmap, model_times, burnin_generation, events)
+    _process_pulses(dg, idmap, model_times, burnin_generation, events)
+    _process_admixtures(dg, idmap, model_times, burnin_generation, events)
+    _process_mergers(dg, idmap, model_times, burnin_generation, events)
+    _process_splits(dg, idmap, model_times, burnin_generation, events)
+    _process_branches(dg, idmap, model_times, burnin_generation, events)
 
     if dg.doi != "None":
         doi = dg.doi
     else:
         doi = None
-
     return fwdpy11.demographic_models.DemographicModelDetails(
         model=events.build_model(),
         name=dg.description,
@@ -625,8 +650,7 @@ def _build_from_deme_graph(
             "deme_labels": {j: i for i, j in idmap.items()},
             "initial_sizes": initial_sizes,
             "burnin_time": burnin_generation,
-            "total_simulation_length": burnin_generation
-            + time_converter(model_times.model_duration),
+            "total_simulation_length": burnin_generation + model_times.model_duration,
         },
     )
 
@@ -640,13 +664,7 @@ def build_from_yaml(
     public interface, although static functions are odd in Python?
     """
     dg = demes.load(filename)
-    print(dg)
-    print(dg.admixtures)
-    print(dg.mergers)
-    print(dg.splits)
-    print(dg.branches)
-    print(dg.pulses)
-    return _build_from_deme_graph(dg, burnin, {"demes_yaml_file": args.yaml})
+    return build_from_deme_graph(dg, burnin, {"demes_yaml_file": args.yaml})
 
 
 if __name__ == "__main__":
