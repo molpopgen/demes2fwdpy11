@@ -115,3 +115,75 @@ class TestFwdpy11Conversion(unittest.TestCase):
             == demog.metadata["burnin_time"] + 100
         )
         self.assertTrue(len(demog.model.set_migration_rates) == 5)
+
+    def test_three_way_split(self):
+        g = demes.DemeGraph(description="test split", time_units="generations")
+        g.deme(id="Ancestor", initial_size=1000, end_time=200)
+        g.deme("Deme1", initial_size=100, ancestors=["Ancestor"])
+        g.deme("Deme2", initial_size=100, ancestors=["Ancestor"])
+        g.deme("Deme3", initial_size=200, ancestors=["Ancestor"])
+        g.get_demographic_events()
+        demog = build_model.build_from_deme_graph(g, 10)
+        self.assertTrue(len(demog.model.set_migration_rates) == 6)
+        self.assertTrue(
+            demog.model.set_migration_rates[0].when == demog.metadata["burnin_time"]
+        )
+        self.assertTrue(
+            demog.model.set_migration_rates[2].when == demog.metadata["burnin_time"]
+        )
+        self.assertTrue(
+            demog.model.set_migration_rates[3].when == demog.metadata["burnin_time"] + 1
+        )
+        self.assertTrue(
+            demog.model.set_migration_rates[5].when == demog.metadata["burnin_time"] + 1
+        )
+
+    def test_branch(self):
+        g = demes.DemeGraph(description="test split", time_units="generations")
+        g.deme(id="Ancestor", initial_size=1000)
+        g.deme("Deme1", initial_size=100, ancestors=["Ancestor"], start_time=100)
+        g.get_demographic_events()
+        demog = build_model.build_from_deme_graph(g, 10)
+        self.assertTrue(len(demog.model.set_migration_rates) == 2)
+        self.assertTrue(
+            demog.model.set_migration_rates[0].when == demog.metadata["burnin_time"]
+        )
+        self.assertTrue(
+            demog.model.set_migration_rates[1].when == demog.metadata["burnin_time"] + 1
+        )
+        self.assertTrue(
+            np.all(demog.model.set_migration_rates[0].migrates == np.array([1, 0]))
+        )
+        self.assertTrue(
+            np.all(demog.model.set_migration_rates[1].migrates == np.array([0, 1]))
+        )
+
+    def test_branch_with_migration(self):
+        g = demes.DemeGraph(description="test split", time_units="generations")
+        g.deme(id="Ancestor", initial_size=1000)
+        g.deme("Deme1", initial_size=100, ancestors=["Ancestor"], start_time=100)
+        g.migrations = [
+            demes.Migration(
+                source="Ancestor", dest="Deme1", rate=0.01, start_time=100, end_time=0
+            ),
+            demes.Migration(
+                source="Deme1", dest="Ancestor", rate=0.01, start_time=100, end_time=0
+            ),
+        ]
+        g.get_demographic_events()
+        demog = build_model.build_from_deme_graph(g, 10)
+        self.assertTrue(len(demog.model.set_migration_rates) == 3)
+        self.assertTrue(
+            demog.model.set_migration_rates[0].when == demog.metadata["burnin_time"]
+        )
+        self.assertTrue(
+            demog.model.set_migration_rates[2].when == demog.metadata["burnin_time"] + 1
+        )
+        self.assertTrue(
+            np.all(demog.model.set_migration_rates[1].migrates == np.array([1, 0]))
+        )
+        self.assertTrue(
+            np.all(
+                demog.model.set_migration_rates[2].migrates == np.array([0.01, 0.99])
+            )
+        )
