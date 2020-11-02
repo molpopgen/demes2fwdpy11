@@ -81,6 +81,8 @@ class _Fwdpy11Events(object):
     idmap: typing.Dict = None
 
     # The initial continuous migration matrix
+    initial_migmatrix: typing.Optional[fwdpy11.MigrationMatrix] = None
+    # The migration matrix that we update to get changes in migration rates
     migmatrix: typing.Optional[fwdpy11.MigrationMatrix] = None
 
     # The following do not correspond to fwdpy11 event types.
@@ -93,9 +95,10 @@ class _Fwdpy11Events(object):
             changes_at_m[0][migration_rate_change.destination][
                 migration_rate_change.source
             ] += migration_rate_change.rate_change
-            changes_at_m[0][migration_rate_change.destination][
-                migration_rate_change.destination
-            ] -= migration_rate_change.rate_change
+            if migration_rate_change.destination != migration_rate_change.source:
+                changes_at_m[0][migration_rate_change.destination][
+                    migration_rate_change.destination
+                ] -= migration_rate_change.rate_change
         else:
             changes_at_m[1][migration_rate_change.destination][
                 migration_rate_change.source
@@ -190,7 +193,7 @@ class _Fwdpy11Events(object):
             set_deme_sizes=self.set_deme_sizes,
             set_growth_rates=self.set_growth_rates,
             set_selfing_rates=self.set_selfing_rates,
-            migmatrix=self.migmatrix,
+            migmatrix=self.initial_migmatrix,
             set_migration_rates=set_migration_rates,
         )
 
@@ -313,14 +316,19 @@ def _set_initial_migration_matrix(
     recent migration rate changes or start time set the model
     start time at or before that time
     """
-    migmatrix = np.eye(len(idmap))
-    if len(dg.migrations) > 0:
-        for m in dg.migrations:
-            if m.start_time == math.inf:
-                migmatrix[m.dest][m.source] += m.rate
-                migmatrix[m.dest][m.dest] -= m.rate
+    if len(idmap) > 1:
+        migmatrix = np.zeros((len(idmap), len(idmap)))
+        for deme_id, ii in idmap.items():
+            if dg[deme_id].start_time == math.inf:
+                migmatrix[ii, ii] = 1.0
+        if len(dg.migrations) > 0:
+            for m in dg.migrations:
+                if m.start_time == math.inf:
+                    migmatrix[m.dest][m.source] += m.rate
+                    migmatrix[m.dest][m.dest] -= m.rate
 
-    events.migmatrix = migmatrix
+        events.migmatrix = migmatrix
+        events.initial_migmatrix = migmatrix
 
 
 def _process_epoch(
@@ -387,6 +395,33 @@ def _process_all_epochs(dg, idmap, model_times, burnin_generation, events):
                 burnin_generation,
                 events,
             )
+        # if a deme starts more recently than math.inf, we have to
+        # turn on migration in that deme with a diagonal element to 1
+        if deme.start_time < math.inf:
+            events.migration_rate_changes.append(
+                _MigrationRateChange(
+                    when=burnin_generation
+                    + int(model_times.model_start_time - deme.start_time),
+                    source=idmap[deme.id],
+                    destination=idmap[deme.id],
+                    rate_change=1.,
+                    from_deme_graph=True,
+                )
+            )
+
+        # if a deme ends before time zero, we set diag entry in migmatrix to 0
+        if deme.end_time > 0:
+            events.migration_rate_changes.append(
+                _MigrationRateChange(
+                    when=burnin_generation
+                    + int(model_times.model_start_time - deme.end_time),
+                    source=idmap[deme.id],
+                    destination=idmap[deme.id],
+                    rate_change=-1.,
+                    from_deme_graph=True,
+                )
+            )
+
         # if deme ends before time zero, we set set its size to zero
         # we proces deme extintions here instead of in the events
         if deme.end_time > 0:
