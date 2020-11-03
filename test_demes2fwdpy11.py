@@ -5,164 +5,164 @@ import unittest
 import fwdpy11
 
 
-class TestFwdpy11Conversion(unittest.TestCase):
-    def test_single_constant_size(self):
-        g = demes.DemeGraph(description="test", time_units="generations")
-        g.deme(id="Pop", initial_size=1000)
-        demog = build_model.build_from_deme_graph(g, 10)
-        self.assertTrue(
-            demog.metadata["burnin_time"] == demog.metadata["total_simulation_length"]
+class TestSingleDeme(unittest.TestCase):
+    @classmethod
+    def setUp(self):
+        self.g = demes.DemeGraph(
+            description="test demography", time_units="generations"
         )
-        self.assertTrue(len(demog.metadata["deme_labels"]) == 1)
-        self.assertTrue(demog.metadata["initial_sizes"][0] == 1000)
+
+    def valid_fwdpy11_demography(self):
+        self.g.get_demographic_events()
+        self.demog = build_model.build_from_deme_graph(self.g, 10)
         try:
-           _ = fwdpy11.DemographyDebugger([100], demog)
+            _ = fwdpy11.DemographyDebugger([100], self.demog)
         except:
             self.fail("unexpected exception")
 
+    def test_constant_size(self):
+        self.g.deme(id="deme", initial_size=1000)
+        self.valid_fwdpy11_demography()
+
     def test_two_epoch_model(self):
-        g = demes.DemeGraph(description="test", time_units="generations")
-        g.deme(
-            id="Pop",
+        self.g.deme(
+            id="deme",
             epochs=[
                 demes.Epoch(initial_size=1000, end_time=100),
                 demes.Epoch(initial_size=2000, end_time=0),
             ],
         )
-        demog = build_model.build_from_deme_graph(g, 10)
-        self.assertTrue(len(demog.model.set_deme_sizes) == 1)
+        self.valid_fwdpy11_demography()
+        self.assertTrue(len(self.demog.model.set_deme_sizes) == 1)
         self.assertTrue(
-            demog.model.set_deme_sizes[0].when == demog.metadata["burnin_time"]
+            self.demog.model.set_deme_sizes[0].when
+            == self.demog.metadata["burnin_time"]
         )
-        self.assertTrue(demog.model.set_deme_sizes[0].new_size == 2000)
+        self.assertTrue(self.demog.model.set_deme_sizes[0].new_size == 2000)
+
+
+class TestNonGenerationUnits(unittest.TestCase):
+    @classmethod
+    def setUp(self):
+        self.g = demes.DemeGraph(
+            description="test demography", time_units="years", generation_time=25
+        )
+
+    def valid_fwdpy11_demography(self):
+        self.g.get_demographic_events()
+        self.demog = build_model.build_from_deme_graph(self.g, 10)
         try:
-           _ = fwdpy11.DemographyDebugger([100], demog)
+            _ = fwdpy11.DemographyDebugger([100], self.demog)
         except:
             self.fail("unexpected exception")
 
     def test_single_deme_years(self):
-        g = demes.DemeGraph(description="test", time_units="years", generation_time=25)
-        g.deme(
+        self.g.deme(
             id="Pop",
             epochs=[
                 demes.Epoch(initial_size=10000, end_time=25000),
                 demes.Epoch(initial_size=1000, final_size=20000, end_time=0),
             ],
         )
-        demog = build_model.build_from_deme_graph(g, 10)
+        self.valid_fwdpy11_demography()
         self.assertTrue(
-            demog.model.set_deme_sizes[0].when == demog.metadata["burnin_time"]
+            self.demog.model.set_deme_sizes[0].when
+            == self.demog.metadata["burnin_time"]
         )
         self.assertTrue(
-            demog.metadata["total_simulation_length"]
-            == demog.metadata["burnin_time"] + 25000 / 25
+            self.demog.metadata["total_simulation_length"]
+            == self.demog.metadata["burnin_time"] + 25000 // 25
         )
-        self.assertTrue(demog.model.set_deme_sizes[0].new_size == 1000)
+        self.assertTrue(self.demog.model.set_deme_sizes[0].new_size == 1000)
+
+
+class TestSelfing(unittest.TestCase):
+    @classmethod
+    def setUp(self):
+        self.g = demes.DemeGraph(
+            description="test demography", time_units="generations"
+        )
+
+    def valid_fwdpy11_demography(self):
+        self.g.get_demographic_events()
+        self.demog = build_model.build_from_deme_graph(self.g, 10)
         try:
-           _ = fwdpy11.DemographyDebugger([100], demog)
+            _ = fwdpy11.DemographyDebugger([100], self.demog)
         except:
             self.fail("unexpected exception")
 
-    def test_single_pop_selfing(self):
-        g = demes.DemeGraph(
-            description="test selfing rate change", time_units="generations"
-        )
-        g.deme(
+    def test_single_pop_selfing_shift(self):
+        self.g.deme(
             id="Selfer",
             epochs=[
                 demes.Epoch(initial_size=1000, end_time=1000),
                 demes.Epoch(initial_size=1000, end_time=0, selfing_rate=0.2),
             ],
         )
-        demog = build_model.build_from_deme_graph(g, 10)
+        self.valid_fwdpy11_demography()
         self.assertTrue(
-            demog.model.set_selfing_rates[0].when == demog.metadata["burnin_time"]
+            self.demog.model.set_selfing_rates[0].when
+            == self.demog.metadata["burnin_time"]
         )
-        self.assertTrue(demog.model.set_selfing_rates[0].S == 0.2)
-        # model with selfing rate set for all time
-        g = demes.DemeGraph(
-            description="test selfing rate change", time_units="generations"
+        self.assertTrue(self.demog.model.set_selfing_rates[0].S == 0.2)
+
+    def test_single_pop_selfing(self):
+        self.g.deme(id="Selfer", initial_size=1000, selfing_rate=0.5)
+        self.valid_fwdpy11_demography()
+        self.assertTrue(self.demog.model.set_selfing_rates[0].when == 0)
+        self.assertTrue(self.demog.model.set_selfing_rates[0].S == 0.5)
+
+
+class TestSplits(unittest.TestCase):
+    @classmethod
+    def setUp(self):
+        self.g = demes.DemeGraph(
+            description="test demography", time_units="generations"
         )
-        g.deme(id="Selfer", initial_size=1000, selfing_rate=0.5)
-        demog = build_model.build_from_deme_graph(g, 10)
-        self.assertTrue(demog.model.set_selfing_rates[0].when == 0)
-        self.assertTrue(demog.model.set_selfing_rates[0].S == 0.5)
+        self.g.deme(id="Ancestor", initial_size=1000, end_time=200)
+        self.g.deme("Deme1", initial_size=100, ancestors=["Ancestor"])
+        self.g.deme("Deme2", initial_size=100, ancestors=["Ancestor"])
+
+    def valid_fwdpy11_demography(self):
+        self.g.get_demographic_events()
+        self.demog = build_model.build_from_deme_graph(self.g, 10)
         try:
-           _ = fwdpy11.DemographyDebugger([100], demog)
+            _ = fwdpy11.DemographyDebugger([100], self.demog)
         except:
             self.fail("unexpected exception")
 
     def test_split_no_migration(self):
-        g = demes.DemeGraph(description="test split", time_units="generations")
-        g.deme(id="Ancestor", initial_size=1000, end_time=200)
-        g.deme("Deme1", initial_size=100, ancestors=["Ancestor"])
-        g.deme("Deme2", initial_size=100, ancestors=["Ancestor"])
-        g.get_demographic_events()
-        demog = build_model.build_from_deme_graph(g, 10)
-        try:
-           _ = fwdpy11.DemographyDebugger([100], demog)
-        except:
-            self.fail("unexpected exception")
+        self.valid_fwdpy11_demography()
 
     def test_split_with_migration(self):
-        g = demes.DemeGraph(description="test split", time_units="generations")
-        g.deme(id="Ancestor", initial_size=1000, end_time=200)
-        g.deme("Deme1", initial_size=100, ancestors=["Ancestor"])
-        g.deme("Deme2", initial_size=100, ancestors=["Ancestor"])
-        g.migrations = [
-            # asymmetric migration from Deme1 to to Deme2
-            # starts from time of split and ends before present
-            demes.Migration(
-                source="Deme1", dest="Deme2", rate=0.01, start_time=200, end_time=100
-            )
-        ]
-        g.get_demographic_events()
-        demog = build_model.build_from_deme_graph(g, 10)
-        try:
-           _ = fwdpy11.DemographyDebugger([100], demog)
-        except:
-            self.fail("unexpected exception")
+        self.g.migration(source="Deme1", dest="Deme2", rate=0.01)
+        self.g.migration(source="Deme2", dest="Deme1", rate=0.01)
+        self.valid_fwdpy11_demography()
 
     def test_three_way_split(self):
-        g = demes.DemeGraph(description="test split", time_units="generations")
-        g.deme(id="Ancestor", initial_size=1000, end_time=200)
-        g.deme("Deme1", initial_size=100, ancestors=["Ancestor"])
-        g.deme("Deme2", initial_size=100, ancestors=["Ancestor"])
-        g.deme("Deme3", initial_size=200, ancestors=["Ancestor"])
-        g.get_demographic_events()
-        demog = build_model.build_from_deme_graph(g, 10)
+        self.g.deme("Deme3", initial_size=200, ancestors=["Ancestor"])
+        self.valid_fwdpy11_demography()
+
+
+class TestBranches(unittest.TestCase):
+    @classmethod
+    def setUp(self):
+        self.g = demes.DemeGraph(description="test split", time_units="generations")
+        self.g.deme(id="Ancestor", initial_size=1000)
+        self.g.deme("Deme1", initial_size=100, ancestors=["Ancestor"], start_time=100)
+
+    def valid_fwdpy11_demography(self):
+        self.g.get_demographic_events()
+        self.demog = build_model.build_from_deme_graph(self.g, 10)
         try:
-           _ = fwdpy11.DemographyDebugger([100], demog)
+            _ = fwdpy11.DemographyDebugger([100], self.demog)
         except:
             self.fail("unexpected exception")
 
     def test_branch(self):
-        g = demes.DemeGraph(description="test split", time_units="generations")
-        g.deme(id="Ancestor", initial_size=1000)
-        g.deme("Deme1", initial_size=100, ancestors=["Ancestor"], start_time=100)
-        g.get_demographic_events()
-        demog = build_model.build_from_deme_graph(g, 10)
-        try:
-           _ = fwdpy11.DemographyDebugger([100], demog)
-        except:
-            self.fail("unexpected exception")
+        self.valid_fwdpy11_demography()
 
     def test_branch_with_migration(self):
-        g = demes.DemeGraph(description="test split", time_units="generations")
-        g.deme(id="Ancestor", initial_size=1000)
-        g.deme("Deme1", initial_size=100, ancestors=["Ancestor"], start_time=100)
-        g.migrations = [
-            demes.Migration(
-                source="Ancestor", dest="Deme1", rate=0.01, start_time=100, end_time=0
-            ),
-            demes.Migration(
-                source="Deme1", dest="Ancestor", rate=0.01, start_time=100, end_time=0
-            ),
-        ]
-        g.get_demographic_events()
-        demog = build_model.build_from_deme_graph(g, 10)
-        try:
-           _ = fwdpy11.DemographyDebugger([100], demog)
-        except:
-            self.fail("unexpected exception")
-
+        self.g.migration(source="Ancestor", dest="Deme1", rate=0.01)
+        self.g.migration(source="Deme1", dest="Ancestor", rate=0.01)
+        self.valid_fwdpy11_demography()
