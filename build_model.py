@@ -271,7 +271,10 @@ def _get_model_times(dg: demes.DemeGraph) -> _ModelTimes:
         # demes, and take max of those.
         ends_inf = [d.epochs[0].end_time for d in dg.demes if d.start_time == math.inf]
         starts = [d.start_time for d in dg.demes if d.start_time != math.inf]
-        model_start_time = max(ends_inf + starts)
+        mig_starts = [m.start_time for m in dg.migrations if m.start_time != math.inf]
+        mig_ends = [m.end_time for m in dg.migrations if m.start_time == math.inf]
+        pulse_times = [p.time for p in dg.pulses]
+        model_start_time = max(ends_inf + starts + mig_starts + mig_ends + pulse_times)
 
     if most_recent_deme_end != 0:
         model_duration = model_start_time - most_recent_deme_end

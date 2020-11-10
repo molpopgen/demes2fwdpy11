@@ -243,5 +243,37 @@ class TestIslandModel(unittest.TestCase):
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
     def test_demog_attributes(self):
-        self.assertTrue(self.demog.metadata["burnin_time"] == 300 * 10)
+        self.assertTrue(
+            self.demog.metadata["burnin_time"]
+            == sum(self.demog.metadata["initial_sizes"].values()) * 10
+        )
         self.assertTrue(len(self.demog.model.set_migration_rates) == 0)
+
+
+@check_valid_demography
+class TestIslandModelRateChange(unittest.TestCase):
+    @classmethod
+    def setUpClass(self):
+        self.g = demes.DemeGraph(description="island", time_units="generations")
+        self.g.deme(id="Island1", initial_size=100)
+        self.g.deme(id="Island2", initial_size=200)
+        self.g.migration(source="Island1", dest="Island2", rate=0.01, end_time=500)
+        self.g.migration(source="Island2", dest="Island1", rate=0.02)
+        self.g.migration(source="Island1", dest="Island2", rate=0.05, start_time=500)
+        self.g.get_demographic_events()
+        self.demog = build_model.build_from_deme_graph(self.g, 10)
+
+    def test_burnin_time(self):
+        self.assertTrue(
+            self.demog.metadata["burnin_time"]
+            == sum(self.demog.metadata["initial_sizes"].values()) * 10
+        )
+
+    def test_num_mig_rate_changes(self):
+        self.assertTrue(len(self.demog.model.set_migration_rates) == 1)
+    
+    def test_total_sim_length(self):
+        self.assertTrue(
+            self.demog.metadata["total_simulation_length"]
+            == self.demog.metadata["burnin_time"] + 500
+        )
