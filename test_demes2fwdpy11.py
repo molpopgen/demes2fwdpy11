@@ -18,15 +18,6 @@ def check_valid_demography(cls):
     return cls
 
 
-# def check_total_simlen(cls):
-#    def _total_simlen(self, gens):
-#        # figure out how to pass an argument to a decorator function, if possible?
-#        self.assertTrue(self.demog.xxx == gens)
-#
-#    cls.test_simlen = _total_simlen
-#    return cls
-
-
 @check_valid_demography
 class TestNoEvents(unittest.TestCase):
     @classmethod
@@ -147,6 +138,27 @@ class TestSplit(unittest.TestCase):
         self.g.deme("Deme2", initial_size=100, ancestors=["Ancestor"])
         self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
+
+    def test_size_changes(self):
+        self.assertTrue(len(self.demog.model.set_deme_sizes) == 3)
+        self.assertTrue(self.demog.model.set_deme_sizes[0].deme == 0)
+        self.assertTrue(self.demog.model.set_deme_sizes[0].new_size == 0)
+        self.assertTrue(
+            self.demog.model.set_deme_sizes[0].when
+            == self.demog.metadata["burnin_time"]
+        )
+        self.assertTrue(self.demog.model.set_deme_sizes[1].deme == 1)
+        self.assertTrue(self.demog.model.set_deme_sizes[1].new_size == 100)
+        self.assertTrue(
+            self.demog.model.set_deme_sizes[1].when
+            == self.demog.metadata["burnin_time"]
+        )
+        self.assertTrue(self.demog.model.set_deme_sizes[2].deme == 2)
+        self.assertTrue(self.demog.model.set_deme_sizes[2].new_size == 100)
+        self.assertTrue(
+            self.demog.model.set_deme_sizes[2].when
+            == self.demog.metadata["burnin_time"]
+        )
 
 
 @check_valid_demography
@@ -271,9 +283,80 @@ class TestIslandModelRateChange(unittest.TestCase):
 
     def test_num_mig_rate_changes(self):
         self.assertTrue(len(self.demog.model.set_migration_rates) == 1)
-    
+
     def test_total_sim_length(self):
         self.assertTrue(
             self.demog.metadata["total_simulation_length"]
             == self.demog.metadata["burnin_time"] + 500
         )
+
+
+@check_valid_demography
+class TestTwoPopMerger(unittest.TestCase):
+    @classmethod
+    def setUpClass(self):
+        self.g = demes.DemeGraph(
+            description="split then merger", time_units="generations"
+        )
+        self.g.deme(id="Ancestral", initial_size=1000, end_time=1000)
+        self.g.deme(
+            id="Parent1", initial_size=500, end_time=500, ancestors=["Ancestral"]
+        )
+        self.g.deme(
+            id="Parent2", initial_size=500, end_time=500, ancestors=["Ancestral"]
+        )
+        self.g.deme(
+            id="Child",
+            initial_size=1000,
+            ancestors=["Parent1", "Parent2"],
+            proportions=[0.5, 0.5],
+            start_time=500,
+        )
+        self.g.get_demographic_events()
+        self.demog = build_model.build_from_deme_graph(self.g, 10)
+
+    def test_total_sim_length(self):
+        self.assertTrue(
+            self.demog.metadata["total_simulation_length"]
+            == self.demog.metadata["burnin_time"] + 1000
+        )
+
+    def test_num_size_changes(self):
+        self.assertTrue(len(self.demog.model.set_deme_sizes) == 6)
+
+
+@check_valid_demography
+class TestFourWayMerger(unittest.TestCase):
+    @classmethod
+    def setUpClass(self):
+        self.g = demes.DemeGraph(
+            description="split then merger", time_units="generations"
+        )
+        self.g.deme(id="Ancestral", initial_size=1000, end_time=1000)
+        self.g.deme(id="A", initial_size=500, end_time=700, ancestors=["Ancestral"])
+        self.g.deme(id="B", initial_size=500, end_time=500, ancestors=["Ancestral"])
+        self.g.deme(id="Parent1", initial_size=200, end_time=100, ancestors=["A"])
+        self.g.deme(id="Parent2", initial_size=300, end_time=100, ancestors=["A"])
+        self.g.deme(id="Parent3", initial_size=100, end_time=100, ancestors=["B"])
+        self.g.deme(id="Parent4", initial_size=400, end_time=100, ancestors=["B"])
+        self.g.deme(
+            id="Child",
+            initial_size=1000,
+            ancestors=["Parent1", "Parent2", "Parent3", "Parent4"],
+            proportions=[0.2, 0.3, 0.1, 0.4],
+            start_time=100,
+        )
+        self.g.get_demographic_events()
+        self.demog = build_model.build_from_deme_graph(self.g, 10)
+
+    def test_total_sim_length(self):
+        self.assertTrue(
+            self.demog.metadata["total_simulation_length"]
+            == self.demog.metadata["burnin_time"] + 1000
+        )
+
+    def test_num_size_changes(self):
+        self.assertTrue(len(self.demog.model.set_deme_sizes) == 14)
+
+
+
