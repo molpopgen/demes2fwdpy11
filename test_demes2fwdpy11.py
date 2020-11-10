@@ -8,12 +8,23 @@ import fwdpy11
 def check_valid_demography(cls):
     def _valid_fwdpy11_demography(self):
         try:
-            _ = fwdpy11.DemographyDebugger([100], self.demog)
+            _ = fwdpy11.DemographyDebugger(
+                [100] * len(self.demog.metadata["initial_sizes"]), self.demog
+            )
         except:
             self.fail("unexpected exception")
 
     cls.test_validity = _valid_fwdpy11_demography
     return cls
+
+
+# def check_total_simlen(cls):
+#    def _total_simlen(self, gens):
+#        # figure out how to pass an argument to a decorator function, if possible?
+#        self.assertTrue(self.demog.xxx == gens)
+#
+#    cls.test_simlen = _total_simlen
+#    return cls
 
 
 @check_valid_demography
@@ -217,3 +228,20 @@ class TestSplitsBranches(unittest.TestCase):
         self.g.deme(id="D", initial_size=1000, ancestors=["A"])
         self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
+
+
+@check_valid_demography
+class TestIslandModel(unittest.TestCase):
+    @classmethod
+    def setUpClass(self):
+        self.g = demes.DemeGraph(description="island", time_units="generations")
+        self.g.deme(id="Island1", initial_size=100)
+        self.g.deme(id="Island2", initial_size=200)
+        self.g.migration(source="Island1", dest="Island2", rate=0.01)
+        self.g.migration(source="Island2", dest="Island1", rate=0.02)
+        self.g.get_demographic_events()
+        self.demog = build_model.build_from_deme_graph(self.g, 10)
+
+    def test_demog_attributes(self):
+        self.assertTrue(self.demog.metadata["burnin_time"] == 300 * 10)
+        self.assertTrue(len(self.demog.model.set_migration_rates) == 0)

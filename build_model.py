@@ -324,8 +324,8 @@ def _set_initial_migration_matrix(
         if len(dg.migrations) > 0:
             for m in dg.migrations:
                 if m.start_time == math.inf:
-                    migmatrix[m.dest][m.source] += m.rate
-                    migmatrix[m.dest][m.dest] -= m.rate
+                    migmatrix[idmap[m.dest]][idmap[m.source]] += m.rate
+                    migmatrix[idmap[m.dest]][idmap[m.dest]] -= m.rate
 
         events.migmatrix = migmatrix
         events.initial_migmatrix = migmatrix
@@ -448,16 +448,17 @@ def _process_migrations(
     When a migration rate has an end time > 0, it gets entered twice.
     """
     for m in dg.migrations:
-        when = burnin_generation + int(model_times.model_start_time - m.start_time)
-        events.migration_rate_changes.append(
-            _MigrationRateChange(
-                when=when,
-                source=idmap[m.source],
-                destination=idmap[m.dest],
-                rate_change=m.rate,
-                from_deme_graph=True,
+        if m.start_time < math.inf:
+            when = burnin_generation + int(model_times.model_start_time - m.start_time)
+            events.migration_rate_changes.append(
+                _MigrationRateChange(
+                    when=when,
+                    source=idmap[m.source],
+                    destination=idmap[m.dest],
+                    rate_change=m.rate,
+                    from_deme_graph=True,
+                )
             )
-        )
         if m.end_time > 0:
             when = burnin_generation + int(model_times.model_start_time - m.end_time)
             events.migration_rate_changes.append(
