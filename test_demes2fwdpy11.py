@@ -51,7 +51,7 @@ class TestTwoEpoch(unittest.TestCase):
         self.assertTrue(len(self.demog.model.set_deme_sizes) == 1)
         self.assertTrue(
             self.demog.model.set_deme_sizes[0].when
-            == self.demog.metadata["burnin_time"]
+            == self.demog.metadata["burnin_time"] - 1
         )
         self.assertTrue(self.demog.model.set_deme_sizes[0].new_size == 2000)
 
@@ -76,7 +76,7 @@ class TestNonGenerationUnits(unittest.TestCase):
     def test_conversion_to_generations(self):
         self.assertTrue(
             self.demog.model.set_deme_sizes[0].when
-            == self.demog.metadata["burnin_time"]
+            == self.demog.metadata["burnin_time"] - 1
         )
         self.assertTrue(
             self.demog.metadata["total_simulation_length"]
@@ -141,20 +141,20 @@ class TestSplit(unittest.TestCase):
 
     def test_size_changes(self):
         self.assertTrue(len(self.demog.model.set_deme_sizes) == 3)
-        self.assertTrue(self.demog.model.set_deme_sizes[0].deme == 0)
-        self.assertTrue(self.demog.model.set_deme_sizes[0].new_size == 0)
+        self.assertTrue(self.demog.model.set_deme_sizes[0].deme == 1)
+        self.assertTrue(self.demog.model.set_deme_sizes[0].new_size == 100)
         self.assertTrue(
             self.demog.model.set_deme_sizes[0].when
-            == self.demog.metadata["burnin_time"]
+            == self.demog.metadata["burnin_time"] - 1
         )
-        self.assertTrue(self.demog.model.set_deme_sizes[1].deme == 1)
+        self.assertTrue(self.demog.model.set_deme_sizes[1].deme == 2)
         self.assertTrue(self.demog.model.set_deme_sizes[1].new_size == 100)
         self.assertTrue(
             self.demog.model.set_deme_sizes[1].when
-            == self.demog.metadata["burnin_time"]
+            == self.demog.metadata["burnin_time"] - 1
         )
-        self.assertTrue(self.demog.model.set_deme_sizes[2].deme == 2)
-        self.assertTrue(self.demog.model.set_deme_sizes[2].new_size == 100)
+        self.assertTrue(self.demog.model.set_deme_sizes[2].deme == 0)
+        self.assertTrue(self.demog.model.set_deme_sizes[2].new_size == 0)
         self.assertTrue(
             self.demog.model.set_deme_sizes[2].when
             == self.demog.metadata["burnin_time"]
@@ -380,11 +380,11 @@ class TestPulseMigration(unittest.TestCase):
         self.assertTrue(len(self.demog.model.set_migration_rates) == 2)
         self.assertTrue(
             self.demog.model.set_migration_rates[0].when
-            == self.demog.metadata["burnin_time"]
+            == self.demog.metadata["burnin_time"] - 1
         )
         self.assertTrue(
             self.demog.model.set_migration_rates[1].when
-            == self.demog.metadata["burnin_time"] + 1
+            == self.demog.metadata["burnin_time"]
         )
         self.assertTrue(self.demog.model.set_migration_rates[0].deme == 1)
         self.assertTrue(self.demog.model.set_migration_rates[1].deme == 1)
