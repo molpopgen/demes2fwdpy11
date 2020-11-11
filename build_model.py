@@ -502,7 +502,7 @@ def _process_pulses(
                 when=when + 1,
                 source=idmap[p.source],
                 destination=idmap[p.dest],
-                rate_chant=-p.proportion,
+                rate_change=-p.proportion,
                 from_deme_graph=False,
             )
         )

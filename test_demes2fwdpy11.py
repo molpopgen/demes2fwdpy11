@@ -359,4 +359,38 @@ class TestFourWayMerger(unittest.TestCase):
         self.assertTrue(len(self.demog.model.set_deme_sizes) == 14)
 
 
+@check_valid_demography
+class TestPulseMigration(unittest.TestCase):
+    @classmethod
+    def setUpClass(self):
+        self.g = demes.DemeGraph(description="pulse", time_units="generations")
+        self.g.deme(id="deme1", initial_size=100)
+        self.g.deme(id="deme2", initial_size=100)
+        self.g.pulse(source="deme1", dest="deme2", time=100, proportion=0.2)
+        self.g.get_demographic_events()
+        self.demog = build_model.build_from_deme_graph(self.g, 10)
 
+    def test_total_sim_length(self):
+        self.assertTrue(
+            self.demog.metadata["total_simulation_length"]
+            == self.demog.metadata["burnin_time"] + 100
+        )
+
+    def test_pulse_migration_matrix(self):
+        self.assertTrue(len(self.demog.model.set_migration_rates) == 2)
+        self.assertTrue(
+            self.demog.model.set_migration_rates[0].when
+            == self.demog.metadata["burnin_time"]
+        )
+        self.assertTrue(
+            self.demog.model.set_migration_rates[1].when
+            == self.demog.metadata["burnin_time"] + 1
+        )
+        self.assertTrue(self.demog.model.set_migration_rates[0].deme == 1)
+        self.assertTrue(self.demog.model.set_migration_rates[1].deme == 1)
+        self.assertTrue(
+            np.all(self.demog.model.set_migration_rates[0].migrates == [0.2, 0.8])
+        )
+        self.assertTrue(
+            np.all(self.demog.model.set_migration_rates[1].migrates == [0, 1])
+        )
