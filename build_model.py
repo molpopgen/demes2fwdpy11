@@ -482,10 +482,6 @@ def _process_pulses(
     burnin_generation: int,
     events: _Fwdpy11Events,
 ) -> None:
-    ### we want to change this to play nicely with continuous migration: the
-    ### 1-p.proportion of ancestry still behaves according to the continuous
-    ### migration that may be going on.
-    ### FIX ME
     for p in dg.pulses:
         when = burnin_generation + int(model_times.model_start_time - p.time)
         events.migration_rate_changes.append(
@@ -510,12 +506,13 @@ def _process_pulses(
 
 def _process_admixtures(
     dg: demes.DemeGraph,
+    dg_events: typing.Dict,
     idmap: typing.Dict,
     model_times: _ModelTimes,
     burnin_generation: int,
     events: _Fwdpy11Events,
 ) -> None:
-    for a in dg.admixtures:
+    for a in dg_events["admixtures"]:
         when = burnin_generation + int(model_times.model_start_time - a.time)
         for parent, proportion in zip(a.parents, a.proportions):
             events.migration_rate_changes.append(
@@ -540,12 +537,13 @@ def _process_admixtures(
 
 def _process_mergers(
     dg: demes.DemeGraph,
+    dg_events: typing.Dict,
     idmap: typing.Dict,
     model_times: _ModelTimes,
     burnin_generation: int,
     events: _Fwdpy11Events,
 ) -> None:
-    for m in dg.mergers:
+    for m in dg_events["mergers"]:
         when = burnin_generation + int(model_times.model_start_time - m.time)
         for parent, proportion in zip(m.parents, m.proportions):
             events.migration_rate_changes.append(
@@ -570,6 +568,7 @@ def _process_mergers(
 
 def _process_splits(
     dg: demes.DemeGraph,
+    dg_events: typing.Dict,
     idmap: typing.Dict,
     model_times: _ModelTimes,
     burnin_generation: int,
@@ -583,7 +582,7 @@ def _process_splits(
     (danger!) that each offspring deme gets 100% of its ancestry
     from the parent.
     """
-    for s in dg.splits:
+    for s in dg_events["splits"]:
         when = burnin_generation + int(model_times.model_start_time - s.time)
         for c in s.children:
             # one generation of migration to move lineages from parent to children
@@ -610,6 +609,7 @@ def _process_splits(
 
 def _process_branches(
     dg: demes.DemeGraph,
+    dg_events: typing.Dict,
     idmap: typing.Dict,
     model_times: _ModelTimes,
     burnin_generation: int,
@@ -622,7 +622,7 @@ def _process_branches(
     The 1-to-1 relationship between parent and child means 100% of the
     child's ancestry is from parent.
     """
-    for b in dg.branches:
+    for b in dg_events["branches"]:
         when = burnin_generation + int(model_times.model_start_time - b.time)
         # turn on migration for one generation at "when"
         events.migration_rate_changes.append(
@@ -655,6 +655,9 @@ def build_from_deme_graph(
     # dg must be in generations - replaces time_converter
     dg = dg.in_generations()
 
+    # get classified discrete demographic events
+    dg_events = dg.list_demographic_events()
+
     idmap = _build_deme_id_to_int_map(dg)
     initial_sizes = _get_initial_deme_sizes(dg, idmap)
     Nref = _get_ancestral_population_size(dg)
@@ -668,10 +671,10 @@ def build_from_deme_graph(
     _process_all_epochs(dg, idmap, model_times, burnin_generation, events)
     _process_migrations(dg, idmap, model_times, burnin_generation, events)
     _process_pulses(dg, idmap, model_times, burnin_generation, events)
-    _process_admixtures(dg, idmap, model_times, burnin_generation, events)
-    _process_mergers(dg, idmap, model_times, burnin_generation, events)
-    _process_splits(dg, idmap, model_times, burnin_generation, events)
-    _process_branches(dg, idmap, model_times, burnin_generation, events)
+    _process_admixtures(dg, dg_events, idmap, model_times, burnin_generation, events)
+    _process_mergers(dg, dg_events, idmap, model_times, burnin_generation, events)
+    _process_splits(dg, dg_events, idmap, model_times, burnin_generation, events)
+    _process_branches(dg, dg_events, idmap, model_times, burnin_generation, events)
 
     if dg.doi != "None":
         doi = dg.doi

@@ -26,7 +26,6 @@ class TestNoEvents(unittest.TestCase):
             description="test demography", time_units="generations"
         )
         self.g.deme(id="deme", initial_size=1000)
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
 
@@ -44,7 +43,6 @@ class TestTwoEpoch(unittest.TestCase):
                 demes.Epoch(initial_size=2000, end_time=0),
             ],
         )
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
     def test_size_change_params(self):
@@ -70,7 +68,6 @@ class TestNonGenerationUnits(unittest.TestCase):
                 demes.Epoch(initial_size=1000, final_size=20000, end_time=0),
             ],
         )
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
     def test_conversion_to_generations(self):
@@ -99,7 +96,6 @@ class TestSelfingShift(unittest.TestCase):
                 demes.Epoch(initial_size=1000, end_time=0, selfing_rate=0.2),
             ],
         )
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
     def test_selfing_parameters(self):
@@ -118,7 +114,6 @@ class TestSelfing(unittest.TestCase):
             description="test demography", time_units="generations"
         )
         self.g.deme(id="Selfer", initial_size=1000, selfing_rate=0.5)
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
     def test_single_pop_selfing(self):
@@ -136,7 +131,6 @@ class TestSplit(unittest.TestCase):
         self.g.deme(id="Ancestor", initial_size=1000, end_time=200)
         self.g.deme("Deme1", initial_size=100, ancestors=["Ancestor"])
         self.g.deme("Deme2", initial_size=100, ancestors=["Ancestor"])
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
     def test_size_changes(self):
@@ -173,7 +167,6 @@ class TestSplitMigration(unittest.TestCase):
         self.g.deme("Deme2", initial_size=100, ancestors=["Ancestor"])
         self.g.migration(source="Deme1", dest="Deme2", rate=0.01)
         self.g.migration(source="Deme2", dest="Deme1", rate=0.01)
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
 
@@ -188,7 +181,6 @@ class TestSplitThreeWay(unittest.TestCase):
         self.g.deme("Deme1", initial_size=100, ancestors=["Ancestor"])
         self.g.deme("Deme2", initial_size=100, ancestors=["Ancestor"])
         self.g.deme("Deme3", initial_size=200, ancestors=["Ancestor"])
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
 
@@ -199,7 +191,6 @@ class TestBranch(unittest.TestCase):
         self.g = demes.DemeGraph(description="test branch", time_units="generations")
         self.g.deme(id="Ancestor", initial_size=1000)
         self.g.deme("Deme1", initial_size=100, ancestors=["Ancestor"], start_time=100)
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
 
@@ -212,7 +203,6 @@ class TestBranchMigration(unittest.TestCase):
         self.g.deme("Deme1", initial_size=100, ancestors=["Ancestor"], start_time=100)
         self.g.migration(source="Ancestor", dest="Deme1", rate=0.01)
         self.g.migration(source="Deme1", dest="Ancestor", rate=0.01)
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
 
@@ -225,7 +215,6 @@ class TestMultipleBranches(unittest.TestCase):
         self.g.deme("Deme1", initial_size=100, ancestors=["Ancestor"], start_time=100)
         self.g.deme("Deme2", initial_size=200, ancestors=["Ancestor"], start_time=50)
         self.g.deme("Deme3", initial_size=300, ancestors=["Deme1"], start_time=20)
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
 
@@ -238,7 +227,6 @@ class TestSplitsBranches(unittest.TestCase):
         self.g.deme(id="B", initial_size=1000, ancestors=["A"], start_time=200)
         self.g.deme(id="C", initial_size=1000, ancestors=["A"])
         self.g.deme(id="D", initial_size=1000, ancestors=["A"])
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
 
@@ -251,7 +239,6 @@ class TestIslandModel(unittest.TestCase):
         self.g.deme(id="Island2", initial_size=200)
         self.g.migration(source="Island1", dest="Island2", rate=0.01)
         self.g.migration(source="Island2", dest="Island1", rate=0.02)
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
     def test_demog_attributes(self):
@@ -272,7 +259,6 @@ class TestIslandModelRateChange(unittest.TestCase):
         self.g.migration(source="Island1", dest="Island2", rate=0.01, end_time=500)
         self.g.migration(source="Island2", dest="Island1", rate=0.02)
         self.g.migration(source="Island1", dest="Island2", rate=0.05, start_time=500)
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
     def test_burnin_time(self):
@@ -312,7 +298,6 @@ class TestTwoPopMerger(unittest.TestCase):
             proportions=[0.5, 0.5],
             start_time=500,
         )
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
     def test_total_sim_length(self):
@@ -346,7 +331,6 @@ class TestFourWayMerger(unittest.TestCase):
             proportions=[0.2, 0.3, 0.1, 0.4],
             start_time=100,
         )
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
     def test_total_sim_length(self):
@@ -367,7 +351,6 @@ class TestPulseMigration(unittest.TestCase):
         self.g.deme(id="deme1", initial_size=100)
         self.g.deme(id="deme2", initial_size=100)
         self.g.pulse(source="deme1", dest="deme2", time=100, proportion=0.2)
-        self.g.get_demographic_events()
         self.demog = build_model.build_from_deme_graph(self.g, 10)
 
     def test_total_sim_length(self):
